@@ -200,7 +200,19 @@ city <- read.csv("data/DistToCity.csv", header = TRUE)
 # Format covariates
 #------------------------------------------------------------------------------#
 
+# Formatting individual covariates
+  sex <- ch$sex
+  sex[sex == 3] <- NA
+  male.ind <- sex - 1
   
-
+# Format site covariate: distance to nearest "major" city (pop > 10,000)
+  city <- city %>%
+    rename(plot = code) %>%
+    arrange(plot)
+  # Check that plots are in the same order they're found in capture histories
+  # all.equal(unique(ch$plot), unique(city$plot))
+  dist.mn <- mean(city$dist.km)
+  dist.sd <- sd(city$dist.km)
+  distance <- (city$dist.km - dist.mn)/dist.sd
 
   
