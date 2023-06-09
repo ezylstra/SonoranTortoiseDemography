@@ -1,5 +1,6 @@
 ################################################################################
-# Multi-state model for Sonoran desert tortoises in Arizona, 1987-2020
+# Multi-state model to estimate demographic rates of Sonoran desert tortoises in 
+# Arizona, 1987-2020
 
 # ER Zylstra
 # Last updated: 9 June 2023
@@ -9,6 +10,8 @@ library(dplyr)
 library(stringr)
 library(lubridate)
 library(tidyr)
+library(jagsUI)
+library(runjags)
 
 rm(list=ls())
 
@@ -195,6 +198,12 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   # Proportion of juveniles that were subsequently captured as adults (n = 91)
   sum(firstlast$state1 == 1 & firstlast$state2 == 2)/sum(firstlast$state1 == 1)
   
+# Create vector indicating the first year each tortoise was caught:
+  first <- rep(NA, nrow(ch.mat))
+  for (i in 1:nrow(ch.mat)) {
+    first[i] <- which(!is.na(ch.mat[i,]) & ch.mat[i,] < 3)[1]
+  }
+  
 #------------------------------------------------------------------------------#  
 # Format covariates
 #------------------------------------------------------------------------------#
@@ -344,4 +353,253 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   plots$plot.index <- 1:nrow(plots)
   plot.index <- plots$plot.index[match(ch$plot, plots$plot)]	
   
+#------------------------------------------------------------------------------#  
+# Functions to create initial values for JAGS
+#------------------------------------------------------------------------------#
+
+# Create vector indicating the first year each tortoise was caught as juvenile:
+  first1 <- rep(NA, nrow(ch.mat))
+  for (i in 1:nrow(ch.mat)) {
+    first1[i] <- which(!is.na(ch.mat[i,]) & ch.mat[i,] == 1)[1]
+  }
+  
+# Create vector indicating the first year each tortoise was caught as adult:  
+  first2 <- rep(NA, nrow(ch.mat))
+  for (i in 1:nrow(ch.mat)) {
+    first2[i] <- which(!is.na(ch.mat[i,]) & ch.mat[i,] == 2)[1]
+  }
+  
+# Create a matrix of initial values for latent states (z)
+  # NAs up to and including the first occasion, then 1/2 through the remainder
+  ch.init <- function(y, f1, f2){
+    for (i in 1:length(f1)) {
+      if(!is.na(f1[i]) & f1[i] == ncol(y)) {y[i,] <- NA} else
+        if (is.na(f1[i]) & !is.na(f2[i]) & f2[i] == ncol(y)) {y[i,] <- NA} else
+          if (is.na(f1[i]) & !is.na(f2[i]) & f2[i] != ncol(y)) {y[i, 1:f2[i]] <- NA; y[i, (f2[i] + 1):ncol(y)] <- 2} else
+            if (!is.na(f1[i]) & f1[i] != ncol(y) & is.na(f2[i])) {y[i, 1:f1[i]] <- NA; y[i, (f1[i] +1 ):ncol(y)] <- 1} else
+              if (!is.na(f1[i]) & !is.na(f2[i]) & (f2[i] - f1[i] == 1)) {y[i, 1:f1[i]] <- NA; y[i, f2[i]:ncol(y)] <- 2} else
+                {y[i, 1:f1[i]] <- NA; y[i,(f1[i] + 1):(f2[i] - 1)] <- 1; y[i, f2[i]:ncol(y)] <- 2}}
+    return(y)
+  }
+  
+#------------------------------------------------------------------------------#  
+# Run multistate model in JAGS
+#------------------------------------------------------------------------------#  
+
+# Prep data objects for JAGS
+  ntorts <- nrow(ch.mat)             # Number of tortoises
+  nyears <- ncol(ch.mat)             # Number of occasions
+  nplots <- length(unique(ch$plot))  # Number of plots
+  
+  # Sequence to evaluate a (logit) linear trend in adult survival
+  trend <- seq(0, nyears - 2)        
+  trend.z <- (trend - mean(trend)) / sd(trend)
+  trend.z2 <- trend.z * trend.z
+  
+  tortdata <- list(y = as.matrix(ch.mat),
+                   ntorts = ntorts,
+                   nyears = nyears,
+                   nplots = nplots,
+                   first = first,
+                   male = male.ind,
+                   plot = plot.index,
+                   city = city,
+                   mn.precip = precip.norm,
+                   drought = pdsi.24.mat,
+                   trend = trend.z,
+                   trend2= trend.z2,
+                   precip = precip.aj.mat,
+                   effort = effort.mat)
+  
+  # JAGS model
+  sink("MS_siteRE_trend.txt")
+  cat("
+    model{
+
+      #-- Priors and constraints
+
+      alpha.p1 ~ dlogis(0, 1)
+      alpha.p2 ~ dlogis(0, 1)
+      beta.phi1 ~ dlogis(0, 1)
+      beta.phi2 ~ dlogis(0, 1)
+      gamma.psi ~ dlogis(0, 1)
+
+      a1.precip ~ dnorm(0, 0.1)
+      a1.effort ~ dnorm(0, 0.1)
+      a2.male ~ dnorm(0, 0.1)
+      a2.precip ~ dnorm(0, 0.1)
+      a2.effort ~ dnorm(0, 0.1)
+
+      b1.city ~ dnorm(0, 0.1)
+      b1.mnprecip ~ dnorm(0, 0.1)
+      b1.drought ~ dnorm(0, 0.1)
+      b1.int ~ dnorm(0, 0.1)
+      b2.male ~ dnorm(0, 0.1)
+      b2.city ~ dnorm(0, 0.1)
+      b2.mnprecip ~ dnorm(0, 0.1)
+      b2.drought ~ dnorm(0, 0.1)
+      b2.int ~ dnorm(0, 0.1)
+      b2.trend ~ dnorm(0, 0.1)
+      b2.trend2 ~ dnorm(0, 0.1)
+
+      c.mnprecip ~ dnorm(0, 0.1)
+
+      omega ~ dunif(0, 1)
+
+      sigma.site.2 ~ dt(0, pow(2.5, -2), 1)T(0,)
+      tau.site.2 <- 1 / (sigma.site.2 * sigma.site.2)
+
+      for (p in 1:nplots) {
+        e.site.2[p] ~ dnorm(0, tau.site.2)
+      }
+
+      for (i in 1:ntorts) {
+        for (t in first[i]:(nyears - 1)) {
+
+          # Juvenile recapture probability
+          logit(p1[i, t]) <- alpha.p1 + a1.precip * precip[plot[i], t] + 
+                             a1.effort * effort[plot[i], t]
+          # Juvenile survival probability
+          logit(phi1[i, t]) <- beta.phi1 + b1.city * city[plot[i]] +
+                               b1.mnprecip * mn.precip[plot[i]] + 
+                               b1.drought * drought[plot[i], t] +
+                               b1.int * mn.precip[plot[i]] * drought[plot[i], t]
+
+          # Transition probability
+          logit(psi12[i, t]) <- gamma.psi + c.mnprecip * mn.precip[plot[i]]
+
+          # Adult recapture probability
+          logit(p2[i, t]) <- alpha.p2 + a2.male * male[i] + 
+                             a2.precip * precip[plot[i],t] + 
+                             a2.effort * effort[plot[i],t]
+          # Adult survival probability
+          logit(phi2[i, t]) <- beta.phi2 + b2.male * male[i] + 
+                               b2.city * city[plot[i]] + 
+                               b2.mnprecip * mn.precip[plot[i]] +
+                               b2.drought * drought[plot[i], t] + 
+                               b2.int * mn.precip[plot[i]] * drought[plot[i], t] +
+                               b2.trend * trend[t] + b2.trend2 * trend2[t] + 
+                               e.site.2[plot[i]]
+
+          # Define state transition probabilities
+          # First index = states at time t-1, last index = states at time t
+          ps[1, i ,t, 1] <- phi1[i, t] * (1 - psi12[i, t])
+          ps[1, i, t, 2] <- phi1[i, t] * psi12[i, t]
+          ps[1, i, t, 3] <- 1-phi1[i, t]
+          ps[2, i, t, 1] <- 0
+          ps[2, i, t, 2] <- phi2[i, t]
+          ps[2, i, t, 3] <- 1-phi2[i, t]
+          ps[3, i, t, 1] <- 0
+          ps[3, i, t, 2] <- 0
+          ps[3, i, t, 3] <- 1
+
+          # Define stage-dependent detection probabilities
+          # First index = states at time t, last index = detection type at time t
+          po[1, i, t, 1] <- p1[i, t]
+          po[1, i, t, 2] <- 0
+          po[1, i, t, 3] <- 1-p1[i, t]
+          po[2, i, t, 1] <- 0
+          po[2, i, t, 2] <- p2[i, t]
+          po[2, i, t, 3] <- 1-p2[i, t]
+          po[3, i, t, 1] <- 0
+          po[3, i, t, 2] <- 0
+          po[3, i, t, 3] <- 1
+
+        } # t
+      } # i
+
+      #-- Likelihood
+
+      for (i in 1:ntorts) {
+        z[i, first[i]] <- y[i, first[i]]
+        male[i] ~ dbern(omega)
+
+        for (t in (first[i] + 1):nyears) {
+
+          # State process: draw State[t] given State[t-1]
+          z[i, t] ~ dcat(ps[z[i, t-1], i, t-1, ])
+
+          # Observation process: draw Obs[t] given State[t]
+          y[i, t] ~ dcat(po[z[i, t], i, t-1, ])
+
+        } # t
+      } # i
+
+      #-- Derived parameters
+
+      logit(psi12.mn) <- gamma.psi
+      logit(phi1.mn) <- beta.phi1
+      logit(p1.mn) <- alpha.p1
+
+      phi2.f <- exp(beta.phi2) / (1 + exp(beta.phi2))
+      phi2.m <- exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male))
+      p2.f <- exp(alpha.p2) / (1 + exp(alpha.p2))
+      p2.m <- exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male))
+
+    } # model
+  ",fill=TRUE)
+  sink()
+  
+  # MCMC settings, parameters, initial values  
+  n.chains <- 3
+  n.iter <- 100   #15000
+  n.adapt <- 100 #2000
+  n.burn <- 100 #10000
+  n.thin <- 1   #15
+  ni.tot <- n.iter + n.burn
+
+  params <- c("alpha.p1", "a1.precip", "a1.effort",
+              "beta.phi1", "b1.distance", "b1.mnprecip", "b1.drought", "b1.int",
+              "gamma.psi", "c.mnprecip",
+              "alpha.p2", "a2.male", "a2.precip", "a2.effort",
+              "beta.phi2", "b2.male", "b2.distance", "b2.mnprecip", 
+              "b2.drought", "b2.int", "b2.trend", "b2.trend2",
+              "omega", "sigma.site.2", "e.site.2",
+              "p1.mn", "phi1.mn", "psi12.mn",
+              "phi2.f", "phi2.m", "p2.f", "p2.m")
+  
+  inits <- function() {list(alpha.p1 = runif(1, -1, 1),
+                            alpha.p2 = runif(1, -1, 2),
+                            beta.phi1 = runif(1, -1, 1),
+                            beta.phi2 = runif(1, 1, 3),
+                            gamma.psi = runif(1, -2, 0),
+                            a1.precip = runif(1, -0.5, 0.5),
+                            a1.effort = runif(1, -0.5, 0.5),
+                            a2.male = runif(1, -0.5, 0.5),
+                            a2.precip = runif(1, -0.5, 0.5),
+                            a2.effort = runif(1, -0.5, 0.5),
+                            b1.distance = runif(1, -0.5, 0.5),
+                            b1.mnprecip = runif(1, -0.5, 0.5),
+                            b1.drought = runif(1, -0.5, 0.5),
+                            b1.int = runif(1, -0.5, 0.5),
+                            b2.male = runif(1, -0.5, 0.5),
+                            b2.distance = runif(1, -0.5, 0.5),
+                            b2.mnprecip = runif(1, -0.5, 0.5),
+                            b2.drought = runif(1, -0.5, 0.5),
+                            b2.int = runif(1, -0.5, 0.5),
+                            b2.trend = runif(1, -0.5, 0.5),
+                            b2.trend2 = runif(1, -0.5, 0.5),
+                            c.mnprecip = runif(1, -0.5, 0.5),
+                            omega = runif(1, 0, 1),
+                            sigma.site.2 = runif(1, 0, 3),
+                            male = ifelse(is.na(male.ind), 1, NA),
+                            z = ch.init(as.matrix(ch.mat), first1, first2))}
+  
+  #Run model
+  fit.ms <- jags(data = tortdata, inits = inits, parameters.to.save = params,
+                 model.file="MS_siteRE_trend.txt",
+                 n.chains = n.chains, n.adapt = n.adapt, n.iter = ni.tot, 
+                 n.burnin = n.burn, n.thin = n.thin,
+                 parallel = TRUE, n.cores = 3, DIC = FALSE) 
+
+  # load(file.choose())
+  print(fit.ms, digits = 2)	
+  
+  #Create a matrix of posterior samples
+  out <- fit.ms$samples
+  comb <- combine.mcmc(out)
+  phi1.s <- comb[ ,c("beta.phi1", colnames(comb)[grep("b1.", colnames(comb))])]
+  phi2.s <- comb[ ,c("beta.phi2", colnames(comb)[grep("b2.", colnames(comb))])]
+  phi2RE.s <- comb[ ,grep("e.site.2", colnames(comb))]
+  psi12.s <- comb[ ,c("gamma.psi", "c.mnprecip")]
   
