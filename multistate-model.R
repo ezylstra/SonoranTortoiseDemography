@@ -650,6 +650,8 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   end5 <- Sys.time()
   end5 - start5 
   
+  summary(samples)
+  
   saveRDS(samples, "MS-samples.rds")
 
   # Do everything in 1 step?
