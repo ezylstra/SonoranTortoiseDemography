@@ -3,15 +3,16 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 9 June 2023
+# Last updated: 2 July 2023
 ################################################################################
 
 library(dplyr)
 library(stringr)
 library(lubridate)
 library(tidyr)
-library(jagsUI)
-library(runjags)
+library(nimble)
+# library(jagsUI)
+# library(runjags)
 
 rm(list=ls())
 
@@ -383,7 +384,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   }
   
 #------------------------------------------------------------------------------#  
-# Run multistate model in JAGS
+# Run multistate model
 #------------------------------------------------------------------------------#  
 
 # Prep data objects for JAGS
@@ -411,10 +412,11 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                    precip = precip.aj.mat,
                    effort = effort.mat)
   
-  # JAGS model
-  sink("MS_siteRE_trend.txt")
-  cat("
-    model{
+  # Model
+  # sink("MS_siteRE_trend.txt")
+  # cat("
+  #   model{
+  tortcode <- nimbleCode({
 
       #-- Priors and constraints
 
@@ -446,7 +448,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 
       omega ~ dunif(0, 1)
 
-      sigma.site.2 ~ dt(0, pow(2.5, -2), 1)T(0,)
+      sigma.site.2 ~ T(dt(0, pow(2.5, -2), 1), 0, )
       tau.site.2 <- 1 / (sigma.site.2 * sigma.site.2)
 
       for (p in 1:nplots) {
@@ -517,46 +519,35 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
         for (t in (first[i] + 1):nyears) {
 
           # State process: draw State[t] given State[t-1]
-          z[i, t] ~ dcat(ps[z[i, t-1], i, t-1, ])
+          z[i, t] ~ dcat(ps[z[i, t-1], i, t-1, 1:3])
 
           # Observation process: draw Obs[t] given State[t]
-          y[i, t] ~ dcat(po[z[i, t], i, t-1, ])
+          y[i, t] ~ dcat(po[z[i, t], i, t-1, 1:3])
 
         } # t
       } # i
-
-      #-- Derived parameters
-
-      logit(psi12.mn) <- gamma.psi
-      logit(phi1.mn) <- beta.phi1
-      logit(p1.mn) <- alpha.p1
-
-      phi2.f <- exp(beta.phi2) / (1 + exp(beta.phi2))
-      phi2.m <- exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male))
-      p2.f <- exp(alpha.p2) / (1 + exp(alpha.p2))
-      p2.m <- exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male))
-
-    } # model
-  ",fill=TRUE)
-  sink()
+  })
+  # ",fill=TRUE)
+  # sink()
   
-  # MCMC settings, parameters, initial values  
-  n.chains <- 3
-  n.iter <- 100   #15000
-  n.adapt <- 100 #2000
-  n.burn <- 100 #10000
-  n.thin <- 1   #15
-  ni.tot <- n.iter + n.burn
-
+  #-- The following derived parameters had been in the original JAGS model
+  #-- If we add them back in, need to add names to params
+  # logit(psi12.mn) <- gamma.psi
+  # logit(phi1.mn) <- beta.phi1
+  # logit(p1.mn) <- alpha.p1
+  # 
+  # phi2.f <- exp(beta.phi2) / (1 + exp(beta.phi2))
+  # phi2.m <- exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male))
+  # p2.f <- exp(alpha.p2) / (1 + exp(alpha.p2))
+  # p2.m <- exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male))
+  
   params <- c("alpha.p1", "a1.precip", "a1.effort",
-              "beta.phi1", "b1.distance", "b1.mnprecip", "b1.drought", "b1.int",
+              "beta.phi1", "b1.city", "b1.mnprecip", "b1.drought", "b1.int",
               "gamma.psi", "c.mnprecip",
               "alpha.p2", "a2.male", "a2.precip", "a2.effort",
-              "beta.phi2", "b2.male", "b2.distance", "b2.mnprecip", 
+              "beta.phi2", "b2.male", "b2.city", "b2.mnprecip", 
               "b2.drought", "b2.int", "b2.trend", "b2.trend2",
-              "omega", "sigma.site.2", "e.site.2",
-              "p1.mn", "phi1.mn", "psi12.mn",
-              "phi2.f", "phi2.m", "p2.f", "p2.m")
+              "omega", "sigma.site.2", "e.site.2")
   
   inits <- function() {list(alpha.p1 = runif(1, -1, 1),
                             alpha.p2 = runif(1, -1, 2),
@@ -568,12 +559,12 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                             a2.male = runif(1, -0.5, 0.5),
                             a2.precip = runif(1, -0.5, 0.5),
                             a2.effort = runif(1, -0.5, 0.5),
-                            b1.distance = runif(1, -0.5, 0.5),
+                            b1.city = runif(1, -0.5, 0.5),
                             b1.mnprecip = runif(1, -0.5, 0.5),
                             b1.drought = runif(1, -0.5, 0.5),
                             b1.int = runif(1, -0.5, 0.5),
                             b2.male = runif(1, -0.5, 0.5),
-                            b2.distance = runif(1, -0.5, 0.5),
+                            b2.city = runif(1, -0.5, 0.5),
                             b2.mnprecip = runif(1, -0.5, 0.5),
                             b2.drought = runif(1, -0.5, 0.5),
                             b2.int = runif(1, -0.5, 0.5),
@@ -585,21 +576,113 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                             male = ifelse(is.na(male.ind), 1, NA),
                             z = ch.init(as.matrix(ch.mat), first1, first2))}
   
-  #Run model
-  fit.ms <- jags(data = tortdata, inits = inits, parameters.to.save = params,
-                 model.file="MS_siteRE_trend.txt",
-                 n.chains = n.chains, n.adapt = n.adapt, n.iter = ni.tot, 
-                 n.burnin = n.burn, n.thin = n.thin,
-                 parallel = TRUE, n.cores = 3, DIC = FALSE) 
-
-  # load(file.choose())
-  print(fit.ms, digits = 2)	
+  # MCMC settings, parameters, initial values  
+  n.chains <- 3
+  n.iter <- 100   #15000
+  # n.adapt <- 100 #2000
+  n.burn <- 100 #10000
+  n.thin <- 1   #15
+  ni.tot <- n.iter + n.burn
   
-  #Create a matrix of posterior samples
-  out <- fit.ms$samples
-  comb <- combine.mcmc(out)
-  phi1.s <- comb[ ,c("beta.phi1", colnames(comb)[grep("b1.", colnames(comb))])]
-  phi2.s <- comb[ ,c("beta.phi2", colnames(comb)[grep("b2.", colnames(comb))])]
-  phi2RE.s <- comb[ ,grep("e.site.2", colnames(comb))]
-  psi12.s <- comb[ ,c("gamma.psi", "c.mnprecip")]
+  # Separate constants and data for NIMBLE
+  tortconstants <- tortdata
+  tortconstants[c("male", "y")] <- NULL
+
+  # Basing the order of things on NIMBLE workshop materials (section 1)
+  
+  # Create model object
+  start1 <- Sys.time()
+  tortmodel <- nimbleModel(code = tortcode, constants = tortconstants, 
+                           calculate = FALSE)
+  end1 <- Sys.time()
+  end1 - start1
+
+  # Set data and inits
+  tortmodel$setData(list(y = as.matrix(ch.mat),
+                         male = male.ind))
+  set.seed(123)
+  tortmodel$setInits(inits())
+
+  # Build MCMC
+  start2 <- Sys.time()
+  tortmcmc <- buildMCMC(tortmodel)
+  end2 <- Sys.time()
+  end2 - start2  
+  
+  # Compile the model and MCMC
+  start3 <- Sys.time()
+  Ctortmodel <-compileNimble(tortmodel)
+  Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
+  end3 <- Sys.time()
+  end3 - start3
+  
+  # Run the MCMC and extract the samples
+  start4 <- Sys.time()
+  samples <- runMCMC(
+    Ctortmcmc,
+    nchains = n.chains,
+    niter = ni.tot,
+    nburnin = n.burn,
+    thin = n.thin,
+    samplesAsCodaMCMC = TRUE
+  )
+  end4 <- Sys.time()
+  end4 - start4
+
+  # MCMC settings, parameters, initial values  
+  n.chains <- 3
+  n.iter <- 15000
+  # n.adapt <- 100 #2000
+  n.burn <- 10000
+  n.thin <- 15
+  ni.tot <- n.iter + n.burn
+  
+  # Run the MCMC and extract the samples
+  start5 <- Sys.time()
+  samples <- runMCMC(
+    Ctortmcmc,
+    nchains = n.chains,
+    niter = ni.tot,
+    nburnin = n.burn,
+    thin = n.thin,
+    samplesAsCodaMCMC = TRUE
+  )
+  end5 <- Sys.time()
+  end5 - start5 
+  
+  saveRDS(samples, "MS-samples.rds")
+
+  # Do everything in 1 step?
+  # fit.ms <- nimbleMCMC(
+  #   code = tortcode,
+  #   constants = tortdata,
+  #   inits = inits,
+  #   monitors = params,
+  #   nchains = n.chains,
+  #   niter = ni.tot,
+  #   nburnin = n.burn,
+  #   thin = nthin,
+  #   samples = TRUE,
+  #   summary = TRUE,
+  #   WAIC = FALSE
+  # )
+
+  
+  # Run model with JAGS
+    # fit.ms <- jags(data = tortdata, inits = inits, parameters.to.save = params,
+    #                model.file="MS_siteRE_trend.txt",
+    #                n.chains = n.chains, n.adapt = n.adapt, n.iter = ni.tot, 
+    #                n.burnin = n.burn, n.thin = n.thin,
+    #                parallel = TRUE, n.cores = 3, DIC = FALSE) 
+    # 
+    # # load(file.choose())
+    # print(fit.ms, digits = 2)	
+    # 
+    # #Create a matrix of posterior samples
+    # out <- fit.ms$samples
+    # comb <- combine.mcmc(out)
+    # phi1.s <- comb[ ,c("beta.phi1", colnames(comb)[grep("b1.", colnames(comb))])]
+    # phi2.s <- comb[ ,c("beta.phi2", colnames(comb)[grep("b2.", colnames(comb))])]
+    # phi2RE.s <- comb[ ,grep("e.site.2", colnames(comb))]
+    # psi12.s <- comb[ ,c("gamma.psi", "c.mnprecip")]
   
