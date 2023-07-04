@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 2 July 2023
+# Last updated: 4 July 2023
 ################################################################################
 
 library(dplyr)
@@ -12,8 +12,6 @@ library(lubridate)
 library(tidyr)
 library(nimble)
 library(MCMCvis)
-# library(jagsUI)
-# library(runjags)
 
 rm(list=ls())
 
@@ -388,7 +386,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 # Run multistate model
 #------------------------------------------------------------------------------#  
 
-# Prep data objects for JAGS
+# Prep data objects
   ntorts <- nrow(ch.mat)             # Number of tortoises
   nyears <- ncol(ch.mat)             # Number of occasions
   nplots <- length(unique(ch$plot))  # Number of plots
@@ -413,10 +411,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                    precip = precip.aj.mat,
                    effort = effort.mat)
   
-  # Model
-  # sink("MS_siteRE_trend.txt")
-  # cat("
-  #   model{
+# Model
   tortcode <- nimbleCode({
 
       #-- Priors and constraints
@@ -528,20 +523,8 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
         } # t
       } # i
   })
-  # ",fill=TRUE)
-  # sink()
-  
-  #-- The following derived parameters had been in the original JAGS model
-  #-- If we add them back in, need to add names to params
-  # logit(psi12.mn) <- gamma.psi
-  # logit(phi1.mn) <- beta.phi1
-  # logit(p1.mn) <- alpha.p1
-  # 
-  # phi2.f <- exp(beta.phi2) / (1 + exp(beta.phi2))
-  # phi2.m <- exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male))
-  # p2.f <- exp(alpha.p2) / (1 + exp(alpha.p2))
-  # p2.m <- exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male))
-  
+
+# Parameters to monitor
   params <- c("alpha.p1", "a1.precip", "a1.effort",
               "beta.phi1", "b1.city", "b1.mnprecip", "b1.drought", "b1.int",
               "gamma.psi", "c.mnprecip",
@@ -550,6 +533,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
               "b2.drought", "b2.int", "b2.trend", "b2.trend2",
               "omega", "sigma.site.2", "e.site.2")
   
+# Initial values
   inits <- function() {list(alpha.p1 = runif(1, -1, 1),
                             alpha.p2 = runif(1, -1, 2),
                             beta.phi1 = runif(1, -1, 1),
@@ -577,47 +561,35 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                             male = ifelse(is.na(male.ind), 1, NA),
                             z = ch.init(as.matrix(ch.mat), first1, first2))}
   
-  # Separate constants and data for NIMBLE
+# Separate constants and data for NIMBLE
   tortconstants <- tortdata
   tortconstants[c("male", "y")] <- NULL
 
-  # Basing the order of things on NIMBLE workshop materials (section 1)
-  
-  # Create model object
-  start1 <- Sys.time()
+# Create model object (~ 8 min)
   tortmodel <- nimbleModel(code = tortcode, constants = tortconstants, 
                            calculate = FALSE)
-  end1 <- Sys.time()
-  end1 - start1
 
-  # Set data and inits
+# Set data and inits
   tortmodel$setData(list(y = as.matrix(ch.mat),
                          male = male.ind))
   set.seed(123)
   tortmodel$setInits(inits())
 
-  # Build MCMC
-  start2 <- Sys.time()
+# Build MCMC (~ 53 min)
   tortmcmc <- buildMCMC(tortmodel)
-  end2 <- Sys.time()
-  end2 - start2  
-  
-  # Compile the model and MCMC
-  start3 <- Sys.time()
+
+# Compile the model and MCMC (~ 26 min)
   Ctortmodel <-compileNimble(tortmodel)
   Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
-  end3 <- Sys.time()
-  end3 - start3
 
-  # MCMC settings, parameters, initial values  
+# MCMC settings, parameters, initial values  
   n.chains <- 3
-  n.iter <- 30000  # Had been 15000
+  n.iter <- 30000
   n.burn <- 10000
   n.thin <- 15
   ni.tot <- n.iter + n.burn
     
-  # Run the MCMC and extract the samples
-  start4 <- Sys.time()
+# Run the MCMC and extract the samples (~13.4 hrs)
   samples <- runMCMC(
     Ctortmcmc,
     nchains = n.chains,
@@ -626,15 +598,19 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     thin = n.thin,
     samplesAsCodaMCMC = TRUE
   )
-  end4 <- Sys.time()
-  end4 - start4
 
+# Save samples
   saveRDS(samples, "MS-samples-6000.rds")
-  #
   
-  # samples <- readRDS("MS-samples-6000.rds")
+#------------------------------------------------------------------------------#  
+# 
+#------------------------------------------------------------------------------#    
+  
+# Load samples from previous run (if needed)
+  samples <- readRDS("MS-samples-6000.rds")
   str(samples)
   
+# Produce summary table, look at trace & density plots
   MCMCsummary(samples, 
               round = 2, 
               params = "all", 
@@ -647,10 +623,24 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   MCMCplot(samples,
            params = "all", # excl = ""
            ci = c(50, 90))
+  
+# Create matrix with samples  
   samples_mat <- MCMCchains(samples, 
                             params = "all",
                             mcmc.list = FALSE)
 
+  
+  #-- The following derived parameters had been in the original JAGS model
+  #-- If we add them back in, need to add names to params
+  # logit(psi12.mn) <- gamma.psi
+  # logit(phi1.mn) <- beta.phi1
+  # logit(p1.mn) <- alpha.p1
+  # 
+  # phi2.f <- exp(beta.phi2) / (1 + exp(beta.phi2))
+  # phi2.m <- exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male))
+  # p2.f <- exp(alpha.p2) / (1 + exp(alpha.p2))
+  # p2.m <- exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male))
+  
   # Run model with JAGS
     # fit.ms <- jags(data = tortdata, inits = inits, parameters.to.save = params,
     #                model.file="MS_siteRE_trend.txt",
