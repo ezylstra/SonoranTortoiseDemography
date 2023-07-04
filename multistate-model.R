@@ -576,7 +576,11 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   tortmodel$setInits(inits())
 
 # Build MCMC (~ 53 min)
-  tortmcmc <- buildMCMC(tortmodel)
+  start_build <- Sys.time()
+  tortmcmc <- buildMCMC(tortmodel,
+                        monitors = params)
+  end_build <- Sys.time()
+  end_build - start_build
 
 # Compile the model and MCMC (~ 26 min)
   Ctortmodel <-compileNimble(tortmodel)
@@ -585,11 +589,12 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 # MCMC settings, parameters, initial values  
   n.chains <- 3
   n.iter <- 30000
-  n.burn <- 10000
+  n.burn <- 5000
   n.thin <- 15
   ni.tot <- n.iter + n.burn
     
 # Run the MCMC and extract the samples (~13.4 hrs)
+  start_run <- Sys.time()
   samples <- runMCMC(
     Ctortmcmc,
     nchains = n.chains,
@@ -598,17 +603,11 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     thin = n.thin,
     samplesAsCodaMCMC = TRUE
   )
+  end_run <- Sys.time()
+  end_run - start_run
 
 # Save samples
   saveRDS(samples, "MS-samples-6000.rds")
-  
-#------------------------------------------------------------------------------#  
-# 
-#------------------------------------------------------------------------------#    
-  
-# Load samples from previous run (if needed)
-  samples <- readRDS("MS-samples-6000.rds")
-  str(samples)
   
 # Produce summary table, look at trace & density plots
   MCMCsummary(samples, 
@@ -618,17 +617,35 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   MCMCtrace(samples,
             params = "all",
             pdf = TRUE,
-            open_pdf = FALSE,
-            wd = "C:/Users/erin/Desktop/")  # type = "density" or "trace"
+            open_pdf = FALSE)
   MCMCplot(samples,
            params = "all", # excl = ""
            ci = c(50, 90))
+
+#------------------------------------------------------------------------------#  
+# Post-processing
+#------------------------------------------------------------------------------#    
   
+# Load samples from previous run (if needed)
+  samples <- readRDS("MS-samples-6000.rds")
+
 # Create matrix with samples  
   samples_mat <- MCMCchains(samples, 
                             params = "all",
                             mcmc.list = FALSE)
-
+  
+# Calculate derived parameters
+  samples_df <- data.frame(samples_mat) %>%
+    mutate(psi12.mn = exp(gamma.psi) / (1 + exp(gamma.psi)),
+           phi1.mn = exp(beta.phi1) / (1 + exp(beta.phi1)),
+           p1.mn = exp(alpha.p1) / (1 + exp(alpha.p1)),
+           phi2.f = exp(beta.phi2) / (1 + exp(beta.phi2)),
+           phi2.m = exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male)),
+           p2.f = exp(alpha.p2) / (1 + exp(alpha.p2)),
+           p2.m = exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male)))
+  
+  
+  
   
   #-- The following derived parameters had been in the original JAGS model
   #-- If we add them back in, need to add names to params
