@@ -11,6 +11,7 @@ library(stringr)
 library(lubridate)
 library(tidyr)
 library(nimble)
+library(MCMCvis)
 # library(jagsUI)
 # library(runjags)
 
@@ -576,14 +577,6 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                             male = ifelse(is.na(male.ind), 1, NA),
                             z = ch.init(as.matrix(ch.mat), first1, first2))}
   
-  # MCMC settings, parameters, initial values  
-  n.chains <- 3
-  n.iter <- 100   #15000
-  # n.adapt <- 100 #2000
-  n.burn <- 100 #10000
-  n.thin <- 1   #15
-  ni.tot <- n.iter + n.burn
-  
   # Separate constants and data for NIMBLE
   tortconstants <- tortdata
   tortconstants[c("male", "y")] <- NULL
@@ -615,7 +608,14 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
   end3 <- Sys.time()
   end3 - start3
-  
+
+  # MCMC settings, parameters, initial values  
+  n.chains <- 3
+  n.iter <- 30000  # Had been 15000
+  n.burn <- 10000
+  n.thin <- 15
+  ni.tot <- n.iter + n.burn
+    
   # Run the MCMC and extract the samples
   start4 <- Sys.time()
   samples <- runMCMC(
@@ -629,47 +629,28 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   end4 <- Sys.time()
   end4 - start4
 
-  # MCMC settings, parameters, initial values  
-  n.chains <- 3
-  n.iter <- 15000
-  # n.adapt <- 100 #2000
-  n.burn <- 10000
-  n.thin <- 15
-  ni.tot <- n.iter + n.burn
+  saveRDS(samples, "MS-samples-6000.rds")
+  #
   
-  # Run the MCMC and extract the samples
-  start5 <- Sys.time()
-  samples <- runMCMC(
-    Ctortmcmc,
-    nchains = n.chains,
-    niter = ni.tot,
-    nburnin = n.burn,
-    thin = n.thin,
-    samplesAsCodaMCMC = TRUE
-  )
-  end5 <- Sys.time()
-  end5 - start5 
+  # samples <- readRDS("MS-samples-6000.rds")
+  str(samples)
   
-  summary(samples)
-  
-  saveRDS(samples, "MS-samples.rds")
+  MCMCsummary(samples, 
+              round = 2, 
+              params = "all", 
+              probs = c(0.025, 0.975))
+  MCMCtrace(samples,
+            params = "all",
+            pdf = TRUE,
+            open_pdf = FALSE,
+            wd = "C:/Users/erin/Desktop/")  # type = "density" or "trace"
+  MCMCplot(samples,
+           params = "all", # excl = ""
+           ci = c(50, 90))
+  samples_mat <- MCMCchains(samples, 
+                            params = "all",
+                            mcmc.list = FALSE)
 
-  # Do everything in 1 step?
-  # fit.ms <- nimbleMCMC(
-  #   code = tortcode,
-  #   constants = tortdata,
-  #   inits = inits,
-  #   monitors = params,
-  #   nchains = n.chains,
-  #   niter = ni.tot,
-  #   nburnin = n.burn,
-  #   thin = nthin,
-  #   samples = TRUE,
-  #   summary = TRUE,
-  #   WAIC = FALSE
-  # )
-
-  
   # Run model with JAGS
     # fit.ms <- jags(data = tortdata, inits = inits, parameters.to.save = params,
     #                model.file="MS_siteRE_trend.txt",
