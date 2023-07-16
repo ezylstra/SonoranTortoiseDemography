@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 4 July 2023
+# Last updated: 16 July 2023
 ################################################################################
 
 library(dplyr)
@@ -566,25 +566,22 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   tortconstants[c("male", "y")] <- NULL
 
 # Create model object (~ 8 min)
-  tortmodel <- nimbleModel(code = tortcode, constants = tortconstants, 
-                           calculate = FALSE)
+  # tortmodel <- nimbleModel(code = tortcode, constants = tortconstants, 
+  #                          calculate = FALSE)
 
 # Set data and inits
-  tortmodel$setData(list(y = as.matrix(ch.mat),
-                         male = male.ind))
-  set.seed(123)
-  tortmodel$setInits(inits())
+  # tortmodel$setData(list(y = as.matrix(ch.mat),
+  #                        male = male.ind))
+  # set.seed(123)
+  # tortmodel$setInits(inits())
 
 # Build MCMC (~ 53 min)
-  start_build <- Sys.time()
-  tortmcmc <- buildMCMC(tortmodel,
-                        monitors = params)
-  end_build <- Sys.time()
-  end_build - start_build
+  # tortmcmc <- buildMCMC(tortmodel,
+  #                       monitors = params)
 
 # Compile the model and MCMC (~ 26 min)
-  Ctortmodel <-compileNimble(tortmodel)
-  Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
+  # Ctortmodel <-compileNimble(tortmodel)
+  # Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
 
 # MCMC settings, parameters, initial values  
   n.chains <- 3
@@ -594,33 +591,17 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   ni.tot <- n.iter + n.burn
     
 # Run the MCMC and extract the samples (~13.4 hrs)
-  start_run <- Sys.time()
-  samples <- runMCMC(
-    Ctortmcmc,
-    nchains = n.chains,
-    niter = ni.tot,
-    nburnin = n.burn,
-    thin = n.thin,
-    samplesAsCodaMCMC = TRUE
-  )
-  end_run <- Sys.time()
-  end_run - start_run
+  # samples <- runMCMC(
+  #   Ctortmcmc,
+  #   nchains = n.chains,
+  #   niter = ni.tot,
+  #   nburnin = n.burn,
+  #   thin = n.thin,
+  #   samplesAsCodaMCMC = TRUE
+  # )
 
 # Save samples
-  saveRDS(samples, "MS-samples-6000.rds")
-  
-# Produce summary table, look at trace & density plots
-  MCMCsummary(samples, 
-              round = 2, 
-              params = "all", 
-              probs = c(0.025, 0.975))
-  MCMCtrace(samples,
-            params = "all",
-            pdf = TRUE,
-            open_pdf = FALSE)
-  MCMCplot(samples,
-           params = "all", # excl = ""
-           ci = c(50, 90))
+  # saveRDS(samples, "MS-samples-6000.rds")
 
 #------------------------------------------------------------------------------#  
 # Post-processing
@@ -629,6 +610,19 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 # Load samples from previous run (if needed)
   samples <- readRDS("MS-samples-6000.rds")
 
+# Produce summary table, look at trace & density plots
+  MCMCsummary(samples, 
+              round = 2, 
+              params = "all", 
+              probs = c(0.025, 0.975))
+  # MCMCtrace(samples,
+  #           params = "all",
+  #           pdf = TRUE,
+  #           open_pdf = FALSE)
+  MCMCplot(samples,
+           params = "all", # excl = ""
+           ci = c(50, 90))  
+  
 # Create matrix with samples  
   samples_mat <- MCMCchains(samples, 
                             params = "all",
@@ -643,36 +637,164 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
            phi2.m = exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male)),
            p2.f = exp(alpha.p2) / (1 + exp(alpha.p2)),
            p2.m = exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male)))
+
+#------------------------------------------------------------------------------# 
+# Settings for figures
+#------------------------------------------------------------------------------#	
+
+# Use mean or median for measure of central tendency
+  ctend <- mean
+  #ctend <- median
+
+# 90% or 95% credible intervals
+  #qprobs <- c(0.05,0.95)
+  qprobs <- c(0.025,0.975) 
   
+# Colors (n = 2)
+  mycol <- col2rgb(c('salmon3','steelblue4'))
+  col1 <- rgb(mycol[1,1],mycol[2,1],mycol[3,1],alpha=255,max=255)
+  col1p <- rgb(mycol[1,1],mycol[2,1],mycol[3,1],alpha=0.2*255,max=255)
+  col2 <- rgb(mycol[1,2],mycol[2,2],mycol[3,2],alpha=255,max=255)
+  col2p <- rgb(mycol[1,2],mycol[2,2],mycol[3,2],alpha=0.2*255,max=255)
   
+#------------------------------------------------------------------------------# 
+# Effect of drought on survival
+#------------------------------------------------------------------------------#	
+
+# Adults
+  # Use survival estimates for last year (2019-2020)
+  # Assume average distance from city (standardized distance = 0)
+  phi2 <- samples_df %>% 
+    select(beta.phi2, b2.male, b2.mnprecip, b2.drought, b2.int, b2.trend, 
+           b2.trend2) %>%
+    as.matrix()
+
+  # Generate covariate values for figure
+  # Use 3 values of mnprecip (values range from 177-409; mean = 280)
+  mnprecip3 <- c(180, 280, 380)
+  mnprecip3.z <- (mnprecip3 - precipnorm.mn) / precipnorm.sd
+  xmin <- min(pdsi.24.mat)
+  xmax <- max(pdsi.24.mat)
+  predx <- cbind(int = 1, male = rep(0:1, each = 300),
+                 mnprecip = rep(rep(mnprecip3.z, 2), each=100),
+                 drought = rep(seq(xmin, xmax, length = 100), 6))
+  predx <- cbind(predx, interact = predx[,3] * predx[,4],
+                 trend = tail(trend.z, 1), trend2 = tail(trend.z2, 1))
+  predl <- predx %*% t(phi2)  # [600 * 7] %*% [7 * 6000] = [600 * 6000]
+  pred <- exp(predl) / (1 + exp(predl))  
+  # Calculate mean/median and CRIs:  
+  mean.f.dry <- apply(pred[1:100,], 1, ctend)
+  mean.f.avg <- apply(pred[101:200,], 1, ctend)
+  mean.f.wet <- apply(pred[201:300,], 1, ctend)
+  mean.m.dry <- apply(pred[301:400,], 1, ctend)
+  mean.m.avg <- apply(pred[401:500,], 1, ctend)
+  mean.m.wet <- apply(pred[501:600,], 1, ctend)
+  ci.f.dry <- apply(pred[1:100,], 1, quantile, probs = qprobs)
+  ci.f.avg <- apply(pred[101:200,], 1, quantile, probs = qprobs)
+  ci.f.wet <- apply(pred[201:300,], 1, quantile, probs = qprobs)
+  ci.m.dry <- apply(pred[301:400,], 1, quantile, probs = qprobs)
+  ci.m.avg <- apply(pred[401:500,], 1, quantile, probs = qprobs)
+  ci.m.wet <- apply(pred[501:600,], 1, quantile, probs = qprobs)
   
+  plotx <- predx[1:100, "drought"] * pdsi.24.sd + pdsi.24.mn
   
-  #-- The following derived parameters had been in the original JAGS model
-  #-- If we add them back in, need to add names to params
-  # logit(psi12.mn) <- gamma.psi
-  # logit(phi1.mn) <- beta.phi1
-  # logit(p1.mn) <- alpha.p1
-  # 
-  # phi2.f <- exp(beta.phi2) / (1 + exp(beta.phi2))
-  # phi2.m <- exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male))
-  # p2.f <- exp(alpha.p2) / (1 + exp(alpha.p2))
-  # p2.m <- exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male))
+  # Figure with M/F adult survival at extreme mnprecip values (wet/dry plots)
+  ### Want to do this with ggplot (and save as pdf and jpg) ###
   
-  # Run model with JAGS
-    # fit.ms <- jags(data = tortdata, inits = inits, parameters.to.save = params,
-    #                model.file="MS_siteRE_trend.txt",
-    #                n.chains = n.chains, n.adapt = n.adapt, n.iter = ni.tot, 
-    #                n.burnin = n.burn, n.thin = n.thin,
-    #                parallel = TRUE, n.cores = 3, DIC = FALSE) 
-    # 
-    # # load(file.choose())
-    # print(fit.ms, digits = 2)	
-    # 
-    # #Create a matrix of posterior samples
-    # out <- fit.ms$samples
-    # comb <- combine.mcmc(out)
-    # phi1.s <- comb[ ,c("beta.phi1", colnames(comb)[grep("b1.", colnames(comb))])]
-    # phi2.s <- comb[ ,c("beta.phi2", colnames(comb)[grep("b2.", colnames(comb))])]
-    # phi2RE.s <- comb[ ,grep("e.site.2", colnames(comb))]
-    # psi12.s <- comb[ ,c("gamma.psi", "c.mnprecip")]
+  par(mar = c(2.5, 3.5, 0.5, 0.6), cex = 0.8)
+  plot(mean.f.dry ~ plotx, type = "l", lty = 1, xaxt= "n", yaxt= "n", xlab = "", 
+       ylab = "",  ylim = c(0.78, 1), bty = "n", yaxs = "i", col = col1)
+  axis(1, at = c(par("usr")[1], par("usr")[2]), tck = F, labels = F)
+  axis(1, at = seq(-4, 4, by = 2), labels = seq(-4, 4, by = 2), tcl = -0.25,
+       mgp = c(1.5, 0.4, 0))
+  axis(2, at = c(par("usr")[3], par("usr")[4]), tck = F, labels = F)
+  axis(2, at = seq(0.8, 1, by = 0.05), tcl = -0.25, las = 1, mgp = c(1.5, 0.5, 0),
+       labels = c("0.80", "0.85", "0.90", "0.95", "1.00"))
+  lines(mean.f.wet ~ plotx, type = "l", lty = 2, col = col1)
+  lines(mean.m.dry ~ plotx, type = "l", lty = 1, col = col2)
+  lines(mean.m.wet ~ plotx, type = "l", lty = 2, col = col2)
+  arrows(x0 = 0, x1 = 0, y0 = 0.68, y1 = 1, length = 0, col = "gray50", lty = 3)
+  mtext("Adult survival", side = 2, las = 0, line = 2.5, cex = 0.8)
+  mtext("PDSI (24-month)", side = 1, line = 1.5, cex = 0.8)
+  legend("bottomright", c("Arid:F", "Arid:M'", "Semiarid:F", "Semiarid:M"),
+         lty = c(1, 1, 2, 2), col = c(col1, col2, col1, col2), bty = "n")
+
+# Juveniles
+  # Use survival estimates for last year (2019-2020)
+  # Assume average distance from city (standardized distance = 0)
+  phi1 <- samples_df %>% 
+    select(beta.phi1, b1.mnprecip, b1.drought, b1.int) %>%
+    as.matrix()
   
+  # Generate covariate values for figure
+  pred1x <- cbind(int = 1, mnprecip = rep(mnprecip3.z, each=100),
+                 drought = rep(seq(xmin, xmax, length = 100), 3))
+  pred1x <- cbind(pred1x, interact = pred1x[,2] * pred1x[,3])
+  pred1l <- pred1x %*% t(phi1)
+  pred1 <- exp(pred1l) / (1 + exp(pred1l))  
+  # Calculate mean/median and CRIs:  
+  mean.j.dry <- apply(pred1[1:100,], 1, ctend)
+  mean.j.avg <- apply(pred1[101:200,], 1, ctend)
+  mean.j.wet <- apply(pred1[201:300,], 1, ctend)
+  ci.j.dry <- apply(pred1[1:100,], 1, quantile, probs = qprobs)
+  ci.j.avg <- apply(pred1[101:200,], 1, quantile, probs = qprobs)
+  ci.j.wet <- apply(pred1[201:300,], 1, quantile, probs = qprobs)
+  
+  # Figure with juvenile survival at extreme mnprecip values (wet/dry plots)
+  ### Want to do this with ggplot (and save as pdf and jpg) ###
+  
+  par(mar = c(2.5, 3.5, 0.5, 0.6), cex = 0.8)
+  plot(mean.j.dry ~ plotx, type = "l", lty = 1, xaxt= "n", yaxt= "n", xlab = "", 
+       ylab = "",  ylim = c(0.45, 1), bty = "n", yaxs = "i", col = "black")
+  axis(1, at = c(par("usr")[1], par("usr")[2]), tck = F, labels = F)
+  axis(1, at = seq(-4, 4, by = 2), labels = seq(-4, 4, by = 2), tcl = -0.25,
+       mgp = c(1.5, 0.4, 0))
+  axis(2, at = c(par("usr")[3], par("usr")[4]), tck = F, labels = F)
+  axis(2, at = seq(0.5, 1, by = 0.1), tcl = -0.25, las = 1, mgp = c(1.5, 0.5, 0),
+       labels = c("0.50", "0.60", "0.70", "0.80", "0.90", "1.00"))
+  lines(mean.j.wet ~ plotx, type = "l", lty = 2, col = "black")
+  arrows(x0 = 0, x1 = 0, y0 = 0.68, y1 = 1, length = 0, col = "gray50", lty = 3)
+  mtext("Juvenile survival", side = 2, las = 0, line = 2.5, cex = 0.8)
+  mtext("PDSI (24-month)", side = 1, line = 1.5, cex = 0.8)
+  legend("bottomright", c("Arid", "Semiarid"),
+         lty = c(1, 2), col = "black", bty = "n")
+
+# Adults and juveniles
+  # Stacked figure with adult, juvenile survival at extreme mnprecip values
+  ### Want to do this with ggplot (and save as pdf and jpg) ###
+  
+#------------------------------------------------------------------------------# 
+# Temporal trends in adult survival?
+#------------------------------------------------------------------------------#	  
+
+# For an average site (mean distance from city, annual precip) with PDSI = 0
+phi2t <- samples_df %>% 
+  select(beta.phi2, b2.male, b2.trend, b2.trend2) %>%
+  as.matrix()
+  
+predtx <- cbind(int = 1, male = rep(0:1, each = 33), trend = rep(trend.z, 2),
+                trend2 = rep(trend.z2, 2))
+predtl <- predtx %*% t(phi2t)
+predt <- exp(predtl) / (1 + exp(predtl))  
+  
+predt.both <- data.frame(endyr = 1988:2020,
+                         interval = rep(paste(1987:2019, 1988:2020, sep = "-")))
+predt.both$female <- round(apply(predt[1:33,], 1, ctend), 3)
+predt.both$female.lcl <- round(apply(predt[1:33,], 1, quantile, probs = qprobs[1]), 3)
+predt.both$female.ucl <- round(apply(predt[1:33,], 1, quantile, probs = qprobs[2]), 3)
+predt.both$male <- round(apply(predt[34:66,], 1, ctend), 3)
+predt.both$male.lcl <- round(apply(predt[34:66,], 1, quantile, probs = qprobs[1]), 3)
+predt.both$male.ucl <- round(apply(predt[34:66,], 1, quantile, probs = qprobs[2]), 3)   
+
+#------------------------------------------------------------------------------# 
+# Temporal trend in PDSI values
+#------------------------------------------------------------------------------#	
+
+#------------------------------------------------------------------------------# 
+# Plot-specific estimates of demographic rates
+#------------------------------------------------------------------------------#
+
+#------------------------------------------------------------------------------# 
+# Population growth rates
+#------------------------------------------------------------------------------#	
+
