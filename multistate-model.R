@@ -725,15 +725,14 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
           legend.position = c(1, 0.02),
           legend.justification = c("right", "bottom"),
           legend.key.height = unit(0.15, "in"))
-  adsurv_plot
-  
-  ggsave("output/adult-survival-drought.jpg",
-         adsurv_plot,
-         device = "jpeg",
-         dpi = 600,
-         width = 3,
-         height = 3, 
-         units = "in")
+
+  # ggsave("output/adult-survival-drought.jpg",
+  #        adsurv_plot,
+  #        device = "jpeg",
+  #        dpi = 600,
+  #        width = 3,
+  #        height = 3, 
+  #        units = "in")
   # Can easily change device to pdf (and remove dpi argument)
 
 # Juveniles
@@ -790,17 +789,17 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
           legend.position = c(1, 0.02),
           legend.justification = c("right", "bottom"),
           legend.key.height = unit(0.15, "in"))
-  juvsurv_plot
-  
-  ggsave("output/juv-survival-drought.jpg",
-         juvsurv_plot,
-         device = "jpeg",
-         dpi = 600,
-         width = 3,
-         height = 3, 
-         units = "in")
+
+  # ggsave("output/juv-survival-drought.jpg",
+  #        juvsurv_plot,
+  #        device = "jpeg",
+  #        dpi = 600,
+  #        width = 3,
+  #        height = 3, 
+  #        units = "in")
  
-# Adults and juveniles
+# Adults and juveniles, stacked
+  # Remove x-axis text from adults (top) figure
   adsurv_stack <- ggplot(data = adsurv_df4) +
     geom_vline(xintercept = 0, col = "gray", linetype = 3, linewidth = linewidth) +
     geom_line(aes(x = pdsi, y = central, group = group,
@@ -809,6 +808,8 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     scale_x_continuous(breaks = seq(-4, 5, by = 2)) +
     scale_color_manual(values = groups4$col) +
     scale_linetype_manual(values = groups4$linetype) +
+    scale_y_continuous(limits = c(0.47, 1), breaks = seq(0.5, 1, by = 0.1), 
+                       labels = c("0.50", "0.60", "0.70", "0.80", "0.90", "1.00"))
     theme_classic() +
     theme(text = element_text(size = 8),
           legend.title = element_blank(),
@@ -817,27 +818,20 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
           legend.key.height = unit(0.15, "in"),
           axis.title.x = element_blank(), 
           axis.text.x = element_blank())
-  adsurv_stack
-  
   surv_stack <- plot_grid(adsurv_stack, juvsurv_plot, ncol = 1)
 
-  ggsave("output/both-survival-drought.jpg",
-         surv_stack,
-         device = "jpeg",
-         dpi = 600,
-         width = 3,
-         height = 5.5, 
-         units = "in")
+  # ggsave("output/both-survival-drought.jpg",
+  #        surv_stack,
+  #        device = "jpeg",
+  #        dpi = 600,
+  #        width = 3,
+  #        height = 5.5, 
+  #        units = "in")
 
 # May want to simplify legends...
   
-  
-  
-  
-  
-  
 #------------------------------------------------------------------------------# 
-# Temporal trends in adult survival?
+# Temporal trends in adult survival
 #------------------------------------------------------------------------------#	  
 
 # For an average site (mean distance from city, annual precip) with PDSI = 0
@@ -845,19 +839,52 @@ phi2t <- samples_df %>%
   select(beta.phi2, b2.male, b2.trend, b2.trend2) %>%
   as.matrix()
   
-predtx <- cbind(int = 1, male = rep(0:1, each = 33), trend = rep(trend.z, 2),
-                trend2 = rep(trend.z2, 2))
+predtx <- cbind(int = 1, male = rep(0:1, each = length(trend)), 
+                trend = rep(trend.z, 2), trend2 = rep(trend.z2, 2))
 predtl <- predtx %*% t(phi2t)
 predt <- exp(predtl) / (1 + exp(predtl))  
-  
-predt.both <- data.frame(endyr = 1988:2020,
-                         interval = rep(paste(1987:2019, 1988:2020, sep = "-")))
-predt.both$female <- round(apply(predt[1:33,], 1, ctend), 3)
-predt.both$female.lcl <- round(apply(predt[1:33,], 1, quantile, probs = qprobs[1]), 3)
-predt.both$female.ucl <- round(apply(predt[1:33,], 1, quantile, probs = qprobs[2]), 3)
-predt.both$male <- round(apply(predt[34:66,], 1, ctend), 3)
-predt.both$male.lcl <- round(apply(predt[34:66,], 1, quantile, probs = qprobs[1]), 3)
-predt.both$male.ucl <- round(apply(predt[34:66,], 1, quantile, probs = qprobs[2]), 3)   
+
+# Calculate mean/median and CRIs:
+adtrend_df <- as.data.frame(predtx) %>%
+  mutate(endyr = rep(1988:2020, 2),
+         interval = rep(paste(1987:2019, 1988:2020, sep = "-"), 2),
+         central = apply(predt, 1, ctend),
+         lcl = apply(predt, 1, quantile, probs = qprobs[1]),
+         ucl = apply(predt, 1, quantile, probs = qprobs[2]),
+         sex = ifelse(male == 1, "M", "F"))
+
+# Set colors, linetypes for figure (types: 1 = solid, 2 = dashed, 3 = dotted) 
+groups_tr <- data.frame(sex = unique(adtrend_df$sex)) %>%
+  mutate(col = ifelse(sex == "F", "salmon3", "steelblue4"),
+         fill = col, 
+         linetype = 1)
+linewidth <- 0.3
+
+trend_plot <- ggplot(data = adtrend_df, 
+                     aes(x = endyr, group = sex)) +
+  geom_line(aes(y = central, color = sex, linetype = sex), linewidth = linewidth) +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl, fill = sex), alpha = 0.2) +
+  labs(x = "Year", y = "Estimated adult survival (95% CI)") +
+  scale_color_manual(values = groups_tr$col) +
+  scale_linetype_manual(values = groups_tr$linetype) +
+  scale_fill_manual(values = groups_tr$fill) +
+  scale_y_continuous(limits = c(0.75, 1), breaks = seq(0.75, 1, by = 0.05)) +
+  theme_classic() +
+  theme(text = element_text(size = 8),
+        legend.title = element_blank(),
+        legend.position = c(1, 0.02),
+        legend.justification = c("right", "bottom"),
+        legend.key.height = unit(0.15, "in"),
+        axis.title.x = element_blank(), 
+        axis.text.x = element_blank())
+
+# ggsave("output/adult-survival-trends.jpg",
+#        trend_plot,
+#        device = "jpeg",
+#        dpi = 600,
+#        width = 3,
+#        height = 3,
+#        units = "in")
 
 #------------------------------------------------------------------------------# 
 # Temporal trend in PDSI values
