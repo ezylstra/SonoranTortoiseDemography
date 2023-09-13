@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 16 July 2023
+# Last updated: 13 September 2023
 ################################################################################
 
 library(dplyr)
@@ -12,6 +12,8 @@ library(lubridate)
 library(tidyr)
 library(nimble)
 library(MCMCvis)
+library(ggplot2)
+library(cowplot)
 
 rm(list=ls())
 
@@ -354,7 +356,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   plot.index <- plots$plot.index[match(ch$plot, plots$plot)]	
   
 #------------------------------------------------------------------------------#  
-# Functions to create initial values for JAGS
+# Functions to create initial values
 #------------------------------------------------------------------------------#
 
 # Create vector indicating the first year each tortoise was caught as juvenile:
@@ -480,7 +482,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                                e.site.2[plot[i]]
 
           # Define state transition probabilities
-          # First index = states at time t-1, last index = states at time t
+          # First index = state at time t-1, last index = state at time t
           ps[1, i ,t, 1] <- phi1[i, t] * (1 - psi12[i, t])
           ps[1, i, t, 2] <- phi1[i, t] * psi12[i, t]
           ps[1, i, t, 3] <- 1-phi1[i, t]
@@ -492,7 +494,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
           ps[3, i, t, 3] <- 1
 
           # Define stage-dependent detection probabilities
-          # First index = states at time t, last index = detection type at time t
+          # First index = state at time t, last index = detection type at time t
           po[1, i, t, 1] <- p1[i, t]
           po[1, i, t, 2] <- 0
           po[1, i, t, 3] <- 1-p1[i, t]
@@ -682,42 +684,57 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                  trend = tail(trend.z, 1), trend2 = tail(trend.z2, 1))
   predl <- predx %*% t(phi2)  # [600 * 7] %*% [7 * 6000] = [600 * 6000]
   pred <- exp(predl) / (1 + exp(predl))  
-  # Calculate mean/median and CRIs:  
-  mean.f.dry <- apply(pred[1:100,], 1, ctend)
-  mean.f.avg <- apply(pred[101:200,], 1, ctend)
-  mean.f.wet <- apply(pred[201:300,], 1, ctend)
-  mean.m.dry <- apply(pred[301:400,], 1, ctend)
-  mean.m.avg <- apply(pred[401:500,], 1, ctend)
-  mean.m.wet <- apply(pred[501:600,], 1, ctend)
-  ci.f.dry <- apply(pred[1:100,], 1, quantile, probs = qprobs)
-  ci.f.avg <- apply(pred[101:200,], 1, quantile, probs = qprobs)
-  ci.f.wet <- apply(pred[201:300,], 1, quantile, probs = qprobs)
-  ci.m.dry <- apply(pred[301:400,], 1, quantile, probs = qprobs)
-  ci.m.avg <- apply(pred[401:500,], 1, quantile, probs = qprobs)
-  ci.m.wet <- apply(pred[501:600,], 1, quantile, probs = qprobs)
   
-  plotx <- predx[1:100, "drought"] * pdsi.24.sd + pdsi.24.mn
+  # Calculate mean/median and CRIs:
+  adsurv_df <- as.data.frame(predx) %>%
+    mutate(central = apply(pred, 1, ctend),
+           lcl = apply(pred, 1, quantile, probs = qprobs[1]),
+           ucl = apply(pred, 1, quantile, probs = qprobs[2]),
+           sex = ifelse(male == 1, "M", "F"),
+           regime = ifelse(mnprecip == mnprecip3.z[1], "Arid",
+                              ifelse(mnprecip == mnprecip3.z[2], 
+                                     "Semiarid", "Mesic")),
+           group = paste(regime, sex, sep = ":"),
+           pdsi = drought * pdsi.24.sd + pdsi.24.mn)
+
+  # Set colors, linetypes for figure (types: 1 = solid, 2 = dashed, 3 = dotted) 
+  groups <- data.frame(unique(adsurv_df[, c("group", "sex", "regime")])) %>%
+    mutate(col = ifelse(sex == "F", "salmon3", "steelblue4"),
+           linetype = ifelse(regime == "Arid", 1,
+                             ifelse(regime == "Semiarid", 3, 2)))
+  linewidth <- 0.3
   
-  # Figure with M/F adult survival at extreme mnprecip values (wet/dry plots)
-  ### Want to do this with ggplot (and save as pdf and jpg) ###
+  # Just using estimates for M/F at dry and wet sites
+  adsurv_df4 <- filter(adsurv_df, regime != "Semiarid") %>%
+    mutate(group = as.factor(group))
+  groups4 <- filter(groups, regime != "Semiarid") %>%
+    mutate(group = as.factor(group)) %>%
+    arrange(group)
+
+  adsurv_plot <- ggplot(data = adsurv_df4) +
+    geom_vline(xintercept = 0, col = "gray", linetype = 3, linewidth = linewidth) +
+    geom_line(aes(x = pdsi, y = central, group = group,
+                  color = group, linetype = group), linewidth = linewidth) +     
+    labs(x = "PDSI (24-month)", y = "Estimated adult survival") +
+    scale_x_continuous(breaks = seq(-4, 5, by = 2)) +
+    scale_color_manual(values = groups4$col) +
+    scale_linetype_manual(values = groups4$linetype) +
+    theme_classic() +
+    theme(text = element_text(size = 8),
+          legend.title = element_blank(),
+          legend.position = c(1, 0.02),
+          legend.justification = c("right", "bottom"),
+          legend.key.height = unit(0.15, "in"))
+  adsurv_plot
   
-  par(mar = c(2.5, 3.5, 0.5, 0.6), cex = 0.8)
-  plot(mean.f.dry ~ plotx, type = "l", lty = 1, xaxt= "n", yaxt= "n", xlab = "", 
-       ylab = "",  ylim = c(0.78, 1), bty = "n", yaxs = "i", col = col1)
-  axis(1, at = c(par("usr")[1], par("usr")[2]), tck = F, labels = F)
-  axis(1, at = seq(-4, 4, by = 2), labels = seq(-4, 4, by = 2), tcl = -0.25,
-       mgp = c(1.5, 0.4, 0))
-  axis(2, at = c(par("usr")[3], par("usr")[4]), tck = F, labels = F)
-  axis(2, at = seq(0.8, 1, by = 0.05), tcl = -0.25, las = 1, mgp = c(1.5, 0.5, 0),
-       labels = c("0.80", "0.85", "0.90", "0.95", "1.00"))
-  lines(mean.f.wet ~ plotx, type = "l", lty = 2, col = col1)
-  lines(mean.m.dry ~ plotx, type = "l", lty = 1, col = col2)
-  lines(mean.m.wet ~ plotx, type = "l", lty = 2, col = col2)
-  arrows(x0 = 0, x1 = 0, y0 = 0.68, y1 = 1, length = 0, col = "gray50", lty = 3)
-  mtext("Adult survival", side = 2, las = 0, line = 2.5, cex = 0.8)
-  mtext("PDSI (24-month)", side = 1, line = 1.5, cex = 0.8)
-  legend("bottomright", c("Arid:F", "Arid:M'", "Semiarid:F", "Semiarid:M"),
-         lty = c(1, 1, 2, 2), col = c(col1, col2, col1, col2), bty = "n")
+  ggsave("output/adult-survival-drought.jpg",
+         adsurv_plot,
+         device = "jpeg",
+         dpi = 600,
+         width = 3,
+         height = 3, 
+         units = "in")
+  # Can easily change device to pdf (and remove dpi argument)
 
 # Juveniles
   # Use survival estimates for last year (2019-2020)
@@ -731,37 +748,93 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                  drought = rep(seq(xmin, xmax, length = 100), 3))
   pred1x <- cbind(pred1x, interact = pred1x[,2] * pred1x[,3])
   pred1l <- pred1x %*% t(phi1)
-  pred1 <- exp(pred1l) / (1 + exp(pred1l))  
-  # Calculate mean/median and CRIs:  
-  mean.j.dry <- apply(pred1[1:100,], 1, ctend)
-  mean.j.avg <- apply(pred1[101:200,], 1, ctend)
-  mean.j.wet <- apply(pred1[201:300,], 1, ctend)
-  ci.j.dry <- apply(pred1[1:100,], 1, quantile, probs = qprobs)
-  ci.j.avg <- apply(pred1[101:200,], 1, quantile, probs = qprobs)
-  ci.j.wet <- apply(pred1[201:300,], 1, quantile, probs = qprobs)
+  pred1 <- exp(pred1l) / (1 + exp(pred1l))
   
-  # Figure with juvenile survival at extreme mnprecip values (wet/dry plots)
-  ### Want to do this with ggplot (and save as pdf and jpg) ###
+  # Calculate mean/median and CRIs:
+  juvsurv_df <- as.data.frame(pred1x) %>%
+    mutate(central = apply(pred1, 1, ctend),
+           lcl = apply(pred1, 1, quantile, probs = qprobs[1]),
+           ucl = apply(pred1, 1, quantile, probs = qprobs[2]),
+           regime = ifelse(mnprecip == mnprecip3.z[1], "Arid",
+                           ifelse(mnprecip == mnprecip3.z[2], 
+                                  "Semiarid", "Mesic")),
+           pdsi = drought * pdsi.24.sd + pdsi.24.mn)  
   
-  par(mar = c(2.5, 3.5, 0.5, 0.6), cex = 0.8)
-  plot(mean.j.dry ~ plotx, type = "l", lty = 1, xaxt= "n", yaxt= "n", xlab = "", 
-       ylab = "",  ylim = c(0.45, 1), bty = "n", yaxs = "i", col = "black")
-  axis(1, at = c(par("usr")[1], par("usr")[2]), tck = F, labels = F)
-  axis(1, at = seq(-4, 4, by = 2), labels = seq(-4, 4, by = 2), tcl = -0.25,
-       mgp = c(1.5, 0.4, 0))
-  axis(2, at = c(par("usr")[3], par("usr")[4]), tck = F, labels = F)
-  axis(2, at = seq(0.5, 1, by = 0.1), tcl = -0.25, las = 1, mgp = c(1.5, 0.5, 0),
-       labels = c("0.50", "0.60", "0.70", "0.80", "0.90", "1.00"))
-  lines(mean.j.wet ~ plotx, type = "l", lty = 2, col = "black")
-  arrows(x0 = 0, x1 = 0, y0 = 0.68, y1 = 1, length = 0, col = "gray50", lty = 3)
-  mtext("Juvenile survival", side = 2, las = 0, line = 2.5, cex = 0.8)
-  mtext("PDSI (24-month)", side = 1, line = 1.5, cex = 0.8)
-  legend("bottomright", c("Arid", "Semiarid"),
-         lty = c(1, 2), col = "black", bty = "n")
-
+  # Set colors, linetypes for figure (types: 1 = solid, 2 = dashed, 3 = dotted) 
+  groups_juv <- data.frame(regime = unique(juvsurv_df$regime)) %>%
+    mutate(col = "black",
+           linetype = ifelse(regime == "Arid", 1,
+                             ifelse(regime == "Semiarid", 3, 2)))
+  linewidth <- 0.3
+  
+  # Just using estimates  at dry and wet sites
+  juvsurv_df2 <- filter(juvsurv_df, regime != "Semiarid") %>%
+    mutate(regime = as.factor(regime))
+  groups_juv2 <- filter(groups_juv, regime != "Semiarid") %>%
+    mutate(regime = as.factor(regime)) %>%
+    arrange(regime)
+  
+  juvsurv_plot <- ggplot(data = juvsurv_df2) +
+    geom_vline(xintercept = 0, col = "gray", linetype = 3, linewidth = linewidth) +
+    geom_line(aes(x = pdsi, y = central, group = regime,
+                  color = regime, linetype = regime), linewidth = linewidth) +     
+    labs(x = "PDSI (24-month)", y = "Estimated adult survival") +
+    scale_x_continuous(breaks = seq(-4, 5, by = 2)) +
+    scale_y_continuous(limits = c(0.47, 1), breaks = seq(0.5, 1, by = 0.1), 
+                       labels = c("0.50", "0.60", "0.70", "0.80", "0.90", "1.00")) +
+    scale_color_manual(values = groups_juv2$col) +
+    scale_linetype_manual(values = groups_juv2$linetype) +
+    theme_classic() +
+    theme(text = element_text(size = 8),
+          legend.title = element_blank(),
+          legend.position = c(1, 0.02),
+          legend.justification = c("right", "bottom"),
+          legend.key.height = unit(0.15, "in"))
+  juvsurv_plot
+  
+  ggsave("output/juv-survival-drought.jpg",
+         juvsurv_plot,
+         device = "jpeg",
+         dpi = 600,
+         width = 3,
+         height = 3, 
+         units = "in")
+ 
 # Adults and juveniles
-  # Stacked figure with adult, juvenile survival at extreme mnprecip values
-  ### Want to do this with ggplot (and save as pdf and jpg) ###
+  adsurv_stack <- ggplot(data = adsurv_df4) +
+    geom_vline(xintercept = 0, col = "gray", linetype = 3, linewidth = linewidth) +
+    geom_line(aes(x = pdsi, y = central, group = group,
+                  color = group, linetype = group), linewidth = linewidth) +     
+    labs(x = "PDSI (24-month)", y = "Estimated adult survival") +
+    scale_x_continuous(breaks = seq(-4, 5, by = 2)) +
+    scale_color_manual(values = groups4$col) +
+    scale_linetype_manual(values = groups4$linetype) +
+    theme_classic() +
+    theme(text = element_text(size = 8),
+          legend.title = element_blank(),
+          legend.position = c(1, 0.02),
+          legend.justification = c("right", "bottom"),
+          legend.key.height = unit(0.15, "in"),
+          axis.title.x = element_blank(), 
+          axis.text.x = element_blank())
+  adsurv_stack
+  
+  surv_stack <- plot_grid(adsurv_stack, juvsurv_plot, ncol = 1)
+
+  ggsave("output/both-survival-drought.jpg",
+         surv_stack,
+         device = "jpeg",
+         dpi = 600,
+         width = 3,
+         height = 5.5, 
+         units = "in")
+
+# May want to simplify legends...
+  
+  
+  
+  
+  
   
 #------------------------------------------------------------------------------# 
 # Temporal trends in adult survival?
