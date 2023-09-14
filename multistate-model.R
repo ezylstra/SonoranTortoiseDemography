@@ -582,10 +582,10 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   #                       monitors = params)
 
 # Compile the model and MCMC (~ 26 min)
-  # Ctortmodel <-compileNimble(tortmodel)
+  # Ctortmodel <- compileNimble(tortmodel)
   # Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
 
-# MCMC settings, parameters, initial values  
+# MCMC settings
   n.chains <- 3
   n.iter <- 30000
   n.burn <- 5000
@@ -651,14 +651,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 # 90% or 95% credible intervals
   #qprobs <- c(0.05,0.95)
   qprobs <- c(0.025,0.975) 
-  
-# Colors (n = 2)
-  mycol <- col2rgb(c('salmon3','steelblue4'))
-  col1 <- rgb(mycol[1,1],mycol[2,1],mycol[3,1],alpha=255,max=255)
-  col1p <- rgb(mycol[1,1],mycol[2,1],mycol[3,1],alpha=0.2*255,max=255)
-  col2 <- rgb(mycol[1,2],mycol[2,2],mycol[3,2],alpha=255,max=255)
-  col2p <- rgb(mycol[1,2],mycol[2,2],mycol[3,2],alpha=0.2*255,max=255)
-  
+
 #------------------------------------------------------------------------------# 
 # Effect of drought on survival
 #------------------------------------------------------------------------------#	
@@ -890,9 +883,101 @@ trend_plot <- ggplot(data = adtrend_df,
 # Temporal trend in PDSI values
 #------------------------------------------------------------------------------#	
 
+pdsi24t <- pdsi.plot %>%
+  rename(div = climate) %>%
+  select(yr, div, pdsi.24) %>%
+  distinct() %>%
+  mutate(yr0 = yr - min(yr))
+
+# Quick run of ML linear regression models
+summary(lm.trend1 <- lm(pdsi.24 ~ yr0, data = pdsi24t))  
+summary(lm.trend5 <- lm(pdsi.24 ~ yr0 * factor(div), data = pdsi24t))
+AIC(lm.trend1); AIC(lm.trend5) # AIC 10 points lower for the simpler model
+
+# Bayesian linear regression
+regcode <- nimbleCode({
+  b0 ~ dnorm(0, sd = 10)
+  b1 ~ dnorm(0, sd = 10)
+  sigma ~ dunif(0, 10)
+
+  for(i in 1:nobs){
+    y[i] ~ dnorm(b0 + b1*x[i], sd = sigma)
+  }
+})
+
+regdata <- list(y = pdsi24t$pdsi.24)
+regconstants <- list(x = pdsi24t$yr0,
+                     nobs = nrow(pdsi24t))
+
+params <- c("b0", "b1", "sigma")
+
+inits <- function() {list(b0 = runif(1, -10, 10),
+                          b1 = runif(1, -2, 2),
+                          sigma = runif(1, 1, 10))} 
+
+# Create model obejct
+set.seed(123)
+regmodel <- nimbleModel(code = regcode, 
+                        data = regdata,
+                        constants = regconstants,
+                        inits = inits())
+
+# Build MCMC
+regmcmc <- buildMCMC(regmodel, monitors = params)
+
+# Compile the model and MCMC
+Cregmodel <- compileNimble(regmodel)
+Cregmcmc <- compileNimble(regmcmc, project = regmodel)
+
+# MCMC settings
+n.chains <- 3
+n.iter <- 10000
+n.burn <- 30000
+n.thin <- 1
+ni.tot <- n.iter + n.burn
+
+# Run the MCMC and extract the samples
+regsamples <- runMCMC(
+  Cregmcmc,
+  nchains = n.chains,
+  niter = ni.tot,
+  nburnin = n.burn,
+  thin = n.thin,
+  samplesAsCodaMCMC = TRUE
+)
+MCMCsummary(regsamples, 
+            round = 2, 
+            params = "all", 
+            probs = c(0.025, 0.975))
+MCMCtrace(regsamples,
+          params = "all",
+          pdf = FALSE)
+
+#### PICK UP HERE
+
+
+X <- data.frame(int=1,yr0=seq(0,32,length=100))
+fit.s <- fit.pdsi$samples
+fit.mat <- combine.mcmc(fit.s)
+betas <- fit.mat[,1:2]
+pdsipreds <- as.matrix(X) %*% t(betas)
+cent.pdsi <- apply(pdsipreds,1,ctend)
+cri.pdsi <- apply(pdsipreds,1,quantile,probs=qprobs)
+
+col5 <- col2rgb(c('mediumpurple4','steelblue4','darkseagreen4','goldenrod4','salmon4'))
+trans <- 0.5
+col5.1p <- rgb(col5[1,1],col5[2,1],col5[3,1],alpha=trans*255,max=255)
+col5.2p <- rgb(col5[1,2],col5[2,2],col5[3,2],alpha=trans*255,max=255)
+col5.3p <- rgb(col5[1,3],col5[2,3],col5[3,3],alpha=trans*255,max=255)
+col5.4p <- rgb(col5[1,4],col5[2,4],col5[3,4],alpha=trans*255,max=255)
+col5.5p <- rgb(col5[1,5],col5[2,5],col5[3,5],alpha=trans*255,max=255)
+
+
 #------------------------------------------------------------------------------# 
 # Plot-specific estimates of demographic rates
 #------------------------------------------------------------------------------#
+
+
 
 #------------------------------------------------------------------------------# 
 # Population growth rates
