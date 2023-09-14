@@ -770,7 +770,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     geom_vline(xintercept = 0, col = "gray", linetype = 3, linewidth = linewidth) +
     geom_line(aes(x = pdsi, y = central, group = regime,
                   color = regime, linetype = regime), linewidth = linewidth) +     
-    labs(x = "PDSI (24-month)", y = "Estimated adult survival") +
+    labs(x = "PDSI (24-month)", y = "Estimated juvenile survival") +
     scale_x_continuous(breaks = seq(-4, 5, by = 2)) +
     scale_y_continuous(limits = c(0.47, 1), breaks = seq(0.5, 1, by = 0.1), 
                        labels = c("0.50", "0.60", "0.70", "0.80", "0.90", "1.00")) +
@@ -788,21 +788,21 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   #        device = "jpeg",
   #        dpi = 600,
   #        width = 3,
-  #        height = 3, 
+  #        height = 3,
   #        units = "in")
  
 # Adults and juveniles, stacked
-  # Remove x-axis text from adults (top) figure
-  adsurv_stack <- ggplot(data = adsurv_df4) +
+  # Remove x-axis text from juveniles (top) figure
+  juvsurv_stack <- ggplot(data = juvsurv_df2) +
     geom_vline(xintercept = 0, col = "gray", linetype = 3, linewidth = linewidth) +
-    geom_line(aes(x = pdsi, y = central, group = group,
-                  color = group, linetype = group), linewidth = linewidth) +     
-    labs(x = "PDSI (24-month)", y = "Estimated adult survival") +
+    geom_line(aes(x = pdsi, y = central, group = regime,
+                  color = regime, linetype = regime), linewidth = linewidth) +     
+    labs(x = "PDSI (24-month)", y = "Estimated juvenile survival") +
     scale_x_continuous(breaks = seq(-4, 5, by = 2)) +
-    scale_color_manual(values = groups4$col) +
-    scale_linetype_manual(values = groups4$linetype) +
     scale_y_continuous(limits = c(0.47, 1), breaks = seq(0.5, 1, by = 0.1), 
-                       labels = c("0.50", "0.60", "0.70", "0.80", "0.90", "1.00"))
+                       labels = c("0.50", "0.60", "0.70", "0.80", "0.90", "1.00")) +
+    scale_color_manual(values = groups_juv2$col) +
+    scale_linetype_manual(values = groups_juv2$linetype) +
     theme_classic() +
     theme(text = element_text(size = 8),
           legend.title = element_blank(),
@@ -811,14 +811,14 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
           legend.key.height = unit(0.15, "in"),
           axis.title.x = element_blank(), 
           axis.text.x = element_blank())
-  surv_stack <- plot_grid(adsurv_stack, juvsurv_plot, ncol = 1)
+  surv_stack <- plot_grid(juvsurv_stack, adsurv_plot, ncol = 1)
 
   # ggsave("output/both-survival-drought.jpg",
   #        surv_stack,
   #        device = "jpeg",
   #        dpi = 600,
   #        width = 3,
-  #        height = 5.5, 
+  #        height = 5.5,
   #        units = "in")
 
 # May want to simplify legends...
@@ -867,9 +867,7 @@ trend_plot <- ggplot(data = adtrend_df,
         legend.title = element_blank(),
         legend.position = c(1, 0.02),
         legend.justification = c("right", "bottom"),
-        legend.key.height = unit(0.15, "in"),
-        axis.title.x = element_blank(), 
-        axis.text.x = element_blank())
+        legend.key.height = unit(0.15, "in"))
 
 # ggsave("output/adult-survival-trends.jpg",
 #        trend_plot,
@@ -1006,11 +1004,84 @@ pdsi_plot <- ggplot() +
 #------------------------------------------------------------------------------# 
 # Plot-specific estimates of demographic rates
 #------------------------------------------------------------------------------#
+# Generating values for 2019-2020, with drought = 0
 
+# Juvenile survival
+  phi1p <- samples_df %>%
+    select(beta.phi1, b1.city, b1.mnprecip)
+  predp1x <- cbind(int = 1, city = city, mnprecip = precip.norm)
+  predp1l <- predp1x %*% t(phi1p)
+  predp1 <- exp(predp1l)/(1 + exp(predp1l))  
+  plotests <- data.frame(plot = plots$plot) %>%
+    mutate(juv = round(apply(predp1, 1, ctend), 2),
+           juv_lcl = round(apply(predp1, 1, quantile, qprobs[1]), 2),
+           juv_ucl = round(apply(predp1, 1, quantile, qprobs[2]), 2))
 
+# Adult survival
+  phi2p <- samples_df %>%
+    select(beta.phi2, b2.male, b2.city, b2.mnprecip, b2.trend, b2.trend2)
+  phi2RE <- select(samples_df, contains("e.site.2"))
 
+  predpx <- cbind(int = 1, male = rep(0:1, each = 17), city = rep(city, 2),
+                  mnprecip = rep(precip.norm, 2), trend = tail(trend.z, 1),
+                  trend2 = tail(trend.z2, 1))
+  predpl <- predpx %*% t(phi2p)
+  RE_mat <- rbind(t(phi2RE), t(phi2RE))
+  predpl <- predpl + RE_mat
+  predp <- exp(predpl)/(1 + exp(predpl)) 
+  
+  plotests <- plotests %>%
+    mutate(ad_fem = round(apply(predp[1:17, ], 1, ctend), 2),
+           ad_fem_lcl = round(apply(predp[1:17, ], 1, quantile, qprobs[1]), 2),
+           ad_fem_ucl = round(apply(predp[1:17, ], 1, quantile, qprobs[2]), 2),
+           ad_male = round(apply(predp[18:34, ], 1, ctend), 2),
+           ad_male_lcl = round(apply(predp[18:34, ], 1, quantile, qprobs[1]), 2),
+           ad_male_ucl = round(apply(predp[18:34, ], 1, quantile, qprobs[2]), 2))
+  
+  # M/F survival in 2019-2020, across all plots
+  phi2pA <- select(samples_df, c(beta.phi2, b2.male, b2.trend, b2.trend2))
+  predpxA <- cbind(int = 1, male = 0:1, 
+                   trend = tail(trend.z, 1), trend2 = tail(trend.z2, 1))
+  predplA <- predpxA %*% t(phi2pA)
+  predpA <- exp(predplA)/(1 + exp(predplA)) 
+  adsurvivalests <- data.frame(sex = c("F", "M")) %>%
+    mutate(mn = round(apply(predpA, 1, ctend), 2),
+           lcl = round(apply(predpA, 1, quantile, qprobs[1]), 2),
+           ucl = round(apply(predpA, 1, quantile, qprobs[2]), 2))
+  adsurvivalests
+
+# Transition rates
+  psi12p <- select(samples_df, c(gamma.psi, c.mnprecip))
+  predpsix <- cbind(int = 1, mnprecip = precip.norm)
+  predpsil <- predpsix %*% t(psi12p)
+  predpsi <- exp(predpsil) / (1 + exp(predpsil))
+  plotests <- plotests %>%
+    mutate(trans = round(apply(predpsi, 1, ctend), 2),
+           trans_lcl = round(apply(predpsi, 1, quantile, qprobs[1]), 2),
+           trans_ucl = round(apply(predpsi, 1, quantile, qprobs[2]), 2))
+
+# Add overall estimates to bottom of table
+plotests_add <- data.frame(plot = "Overall",
+                           juv = ctend(samples_df$phi1.mn),
+                           juv_lcl = quantile(samples_df$phi1.mn, qprobs[1]),
+                           juv_ucl = quantile(samples_df$phi1.mn, qprobs[2]),
+                           ad_fem = adsurvivalests$mn[adsurvivalests$sex == "F"],
+                           ad_fem_lcl = adsurvivalests$lcl[adsurvivalests$sex == "F"],
+                           ad_fem_ucl = adsurvivalests$ucl[adsurvivalests$sex == "F"],
+                           ad_male = adsurvivalests$mn[adsurvivalests$sex == "M"],
+                           ad_male_lcl = adsurvivalests$lcl[adsurvivalests$sex == "M"],
+                           ad_male_ucl = adsurvivalests$ucl[adsurvivalests$sex == "M"],
+                           trans = ctend(samples_df$psi12.mn),
+                           trans_lcl = quantile(samples_df$psi12.mn, qprobs[1]),
+                           trans_ucl = quantile(samples_df$psi12.mn, qprobs[2]),
+                           row.names = NULL) 
+plotests_add <- plotests_add %>%
+  mutate(across(juv:trans_ucl, function(x) round(x, 2)))
+plotests <- rbind(plotests, plotests_add)
+plotests
 
 #------------------------------------------------------------------------------# 
 # Population growth rates
 #------------------------------------------------------------------------------#	
+
 
