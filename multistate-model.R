@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 13 September 2023
+# Last updated: 14 September 2023
 ################################################################################
 
 library(dplyr)
@@ -621,9 +621,9 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   #           params = "all",
   #           pdf = TRUE,
   #           open_pdf = FALSE)
-  MCMCplot(samples,
-           params = "all", # excl = ""
-           ci = c(50, 90))  
+  # MCMCplot(samples,
+  #          params = "all", # excl = ""
+  #          ci = c(50, 90))  
   
 # Create matrix with samples  
   samples_mat <- MCMCchains(samples, 
@@ -646,10 +646,10 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 
 # Use mean or median for measure of central tendency
   ctend <- mean
-  #ctend <- median
+  # ctend <- median
 
 # 90% or 95% credible intervals
-  #qprobs <- c(0.05,0.95)
+  # qprobs <- c(0.05,0.95)
   qprobs <- c(0.025,0.975) 
 
 #------------------------------------------------------------------------------# 
@@ -896,9 +896,9 @@ AIC(lm.trend1); AIC(lm.trend5) # AIC 10 points lower for the simpler model
 
 # Bayesian linear regression
 regcode <- nimbleCode({
-  b0 ~ dnorm(0, sd = 10)
-  b1 ~ dnorm(0, sd = 10)
-  sigma ~ dunif(0, 10)
+  b0 ~ dnorm(0, sd = 100)
+  b1 ~ dnorm(0, sd = 100)
+  sigma ~ dunif(0, 100)
 
   for(i in 1:nobs){
     y[i] ~ dnorm(b0 + b1*x[i], sd = sigma)
@@ -953,29 +953,60 @@ MCMCtrace(regsamples,
           params = "all",
           pdf = FALSE)
 
-#### PICK UP HERE
+# Create matrix with samples, and thin so left with 6000 samples
+regsamples_mat <- MCMCchains(regsamples, 
+                             params = "all",
+                             mcmc.list = FALSE)
+regsamples_mat <- regsamples_mat[seq(1, nrow(regsamples_mat), by = 5),]
+betas <- regsamples_mat[, c("b0", "b1")]
 
+pdsi_df <- data.frame(int = 1,yr0 = seq(0, 32, length=100))
+pdsipreds <- as.matrix(pdsi_df) %*% t(betas)
+pdsi_df <- pdsi_df %>%
+  mutate(central = apply(pdsipreds, 1, ctend),
+         lcl = apply(pdsipreds, 1, quantile, probs = qprobs[1]),
+         ucl = apply(pdsipreds, 1, quantile, probs = qprobs[2]),
+         yr = yr0 + 1988)
 
-X <- data.frame(int=1,yr0=seq(0,32,length=100))
-fit.s <- fit.pdsi$samples
-fit.mat <- combine.mcmc(fit.s)
-betas <- fit.mat[,1:2]
-pdsipreds <- as.matrix(X) %*% t(betas)
-cent.pdsi <- apply(pdsipreds,1,ctend)
-cri.pdsi <- apply(pdsipreds,1,quantile,probs=qprobs)
+# Set colors, linetypes for figure
+pdsi24t$div <- as.factor(pdsi24t$div)
+divs <- data.frame(div = sort(unique(pdsi24t$div))) %>%
+  mutate(col = c('mediumpurple4','steelblue4','darkseagreen4',
+                 'goldenrod4','salmon4'))
+linetype <- 1
+linewidth <- 0.3
 
-col5 <- col2rgb(c('mediumpurple4','steelblue4','darkseagreen4','goldenrod4','salmon4'))
-trans <- 0.5
-col5.1p <- rgb(col5[1,1],col5[2,1],col5[3,1],alpha=trans*255,max=255)
-col5.2p <- rgb(col5[1,2],col5[2,2],col5[3,2],alpha=trans*255,max=255)
-col5.3p <- rgb(col5[1,3],col5[2,3],col5[3,3],alpha=trans*255,max=255)
-col5.4p <- rgb(col5[1,4],col5[2,4],col5[3,4],alpha=trans*255,max=255)
-col5.5p <- rgb(col5[1,5],col5[2,5],col5[3,5],alpha=trans*255,max=255)
+pdsi_plot <- ggplot() +
+  geom_line(data = pdsi24t, aes(x = yr, y = pdsi.24, group = div, col = div),
+            linewidth = linewidth, alpha = 0.6, show.legend = NA) +
+  geom_point(data = pdsi24t, aes(x = yr, y = pdsi.24, col = div, fill = div), 
+             shape = 21, size = 1, alpha = 0.6) +
+  geom_line(data = pdsi_df, aes(x = yr, y = central), show.legend = NA) +
+  geom_ribbon(data = pdsi_df, aes(x = yr, ymin = lcl, ymax = ucl), alpha = 0.2,
+              show.legend = NA) +
+  labs(x = "Year", y = "PDSI (24-month)") +
+  scale_x_continuous(limits = c(1988, 2020), expand = c(0.02, 0.02)) +
+  scale_y_continuous(limits = c(-4, 4.7), breaks = seq(-4, 4, by = 2)) +
+  scale_color_manual(values = divs$col, name = "Division") +
+  scale_fill_manual(values = divs$col, name = "Division") +
+  theme_classic() +
+  theme(text = element_text(size = 8),
+        legend.position = c(0.92, 1),
+        legend.justification = c("right", "top"),
+        legend.key.height = unit(0.12, "in"))
 
+# ggsave("output/pdsi-trend.jpg",
+#        pdsi_plot,
+#        device = "jpeg",
+#        dpi = 600,
+#        width = 6.5,
+#        height = 3,
+#        units = "in")
 
 #------------------------------------------------------------------------------# 
 # Plot-specific estimates of demographic rates
 #------------------------------------------------------------------------------#
+
 
 
 
