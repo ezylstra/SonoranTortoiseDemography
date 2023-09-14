@@ -1084,4 +1084,119 @@ plotests
 # Population growth rates
 #------------------------------------------------------------------------------#	
 
+# Gather plot-specific covariate values (standardized)
+  plotcovs <- data.frame(plot = plots$plot,
+                         city.z = city, 
+                         mnprecip.z = precip.norm)
+  
+  # For each plot, using 3 drought values (-3, 0, +3)
+  phi_Xdf <- plotcovs[rep(seq_len(nrow(plotcovs)), each = 3),] 
+  drought3 <- rep(c(-3, 0, 3), nrow(plotcovs))
+  phi_Xdf <- phi_Xdf %>%
+    mutate(drought.z = (drought3 - pdsi.24.mn) / pdsi.24.sd,
+           int.z = mnprecip.z * drought.z)
 
+  # Create a matrix of covariate values for juvenile survival  
+  phi1_X <- phi_Xdf %>%
+    select(city.z, mnprecip.z, drought.z, int.z) %>%
+    mutate(int = 1, .before = city.z) %>%
+    as.matrix()
+
+  # Create a matrix of covariate values for adult survival 
+  # Last two columns are for the trend effect (using 2019-2020 estimates)
+  phi2_X <- phi_Xdf %>%
+    select(city.z, mnprecip.z, drought.z, int.z) %>%
+    mutate(trend.z = tail(trend.z, 1),
+           trend.z2 = tail(trend.z2, 1)) %>%
+    mutate(int = 1, .before = city.z) %>%
+    as.matrix()
+
+  # Create a matrix of covariate values for transition rate  
+  psi12_X <- phi_Xdf %>%
+    select(mnprecip.z) %>%
+    mutate(int = 1, .before = mnprecip.z) %>%
+    as.matrix()
+
+# Calculate surv, trans estimates for each combination of covariates, iteration
+  # Juvenile survival
+  phi1s <- samples_df %>%
+    select(beta.phi1, b1.city, b1.mnprecip, b1.drought, b1.int) %>%
+    as.matrix()
+  lphi1 <- phi1_X %*% t(phi1s)
+  phi1 <- exp(lphi1) / (1+exp(lphi1))
+  
+  # Adult FEMALE survival (need to add in random site effects)
+  phi2s_f <- samples_df %>%
+    select(beta.phi2, b2.city, b2.mnprecip, b2.drought, 
+           b2.int, b2.trend, b2.trend2) %>%
+    as.matrix()
+  lphi2 <- phi2_X %*% t(phi2s_f)
+  REs <- t(phi2RE)
+  REs <- REs[rep(seq_len(nrow(REs)), each=3), ]
+  lphi2RE <- lphi2 + REs
+  phi2 <- exp(lphi2RE) / (1 + exp(lphi2RE))	
+  
+  # Transition rates
+  psi12s <- samples_df %>%
+    select(gamma.psi, c.mnprecip) %>%
+    as.matrix()
+  lpsi12 <- psi12_X %*% t(psi12s)
+  psi12 <- exp(lpsi12) / (1 + exp(lpsi12))
+  
+# Create population projection matrices, and estimate lambda values
+  # Assuming recruitment = 0.32 f/f/yr 
+  
+  lambda <- matrix(NA, nrow = nrow(phi2), ncol = ncol(phi2))
+  
+  for(i in 1:nrow(phi2)){ 
+    for (j in 1:ncol(phi2)){
+      proj.mat <- matrix(c(phi1[i, j] * (1 - psi12[i, j]), 0.32,
+                           phi1[i, j] * psi12[i, j], phi2[i, j]),
+                         nrow = 2,ncol = 2, byrow=TRUE)
+      lambda[i, j] <- eigen(proj.mat)$values[1]
+    }
+  }   
+  
+# Summarize distributions of lambda values for each plot-drought combination
+  lambdas <- data.frame(plot = phi_Xdf$plot, drought = drought3) %>%
+    mutate(mn = apply(lambda, 1, mean),
+           q0.025 = apply(lambda, 1, quantile, 0.025),
+           q0.05 = apply(lambda, 1, quantile, 0.05),
+           q0.5 = apply(lambda, 1, quantile, 0.5),
+           q0.95 = apply(lambda, 1, quantile, 0.95),
+           q0.975 = apply(lambda, 1, quantile, 0.975),
+           probdecline = apply(lambda, 1, function(x) sum(x < 1) / length(x)))
+  
+# Calculate overall lambda values (city, mnprecip = 0):
+  # Juvenile survival
+  phi1O_X <- phi1_X[1:3, c("int", "drought.z")]
+  phi1Os <- phi1s[ ,c("beta.phi1", "b1.drought")]
+  lphi1O <- as.matrix(phi1O_X) %*% t(phi1Os)
+  phi1O <- exp(lphi1O) / (1 + exp(lphi1O))
+  # Adult female survival
+  phi2O_X <- phi2_X[1:3, c("int", "drought.z", "trend.z", "trend.z2")]
+  phi2Os <- phi2s_f[ ,c("beta.phi2", "b2.drought", "b2.trend", "b2.trend2")]
+  lphi2O <- as.matrix(phi2O_X) %*% t(phi2Os)
+  phi2O <- exp(lphi2O) / (1 + exp(lphi2O))
+  # Transition
+  psi12O <- as.matrix(samples_df$psi12.mn)
+  
+  lambdaO <- matrix(NA, nrow = nrow(phi2O), ncol = ncol(phi2O))
+  for(i in 1:nrow(phi2O)){ 
+    for (j in 1:ncol(phi2O)){
+      proj.mat <- matrix(c(phi1O[i, j] * (1 - psi12O[j]), 0.32,
+                           phi1O[i, j] * psi12O[j], phi2O[i, j]),
+                         nrow = 2,ncol = 2,byrow = TRUE)
+      lambdaO[i, j] <- eigen(proj.mat)$values[1]
+    }
+  }
+  
+  lambdasO <- data.frame(drought = drought3[1:3]) %>%
+    mutate(mn = apply(lambdaO, 1, mean),
+           q0.025 = apply(lambdaO, 1, quantile, 0.025),
+           q0.05 = apply(lambdaO, 1, quantile, 0.05),
+           q0.5 = apply(lambdaO, 1, quantile, 0.5),
+           q0.95 = apply(lambdaO, 1, quantile, 0.95),
+           q0.975 = apply(lambdaO, 1, quantile, 0.975),
+           probdecline = apply(lambdaO, 1, function(x) sum(x < 1) / length(x)))
+  
