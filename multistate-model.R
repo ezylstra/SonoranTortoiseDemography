@@ -1200,3 +1200,11 @@ plotests
            q0.975 = apply(lambdaO, 1, quantile, 0.975),
            probdecline = apply(lambdaO, 1, function(x) sum(x < 1) / length(x)))
   
+# Correlations between lambda values and latitude/longitude
+  lambdas2 <- lambdas %>%
+    left_join(plots[, c("plot", "lat", "long")], by = "plot")
+
+  cor.test(lambdas2$mn[lambdas2$drought == -3],
+           lambdas2$lat[lambdas2$drought == -3])
+  cor.test(lambdas2$mn[lambdas2$drought == -3],
+           lambdas2$long[lambdas2$drought == -3])
