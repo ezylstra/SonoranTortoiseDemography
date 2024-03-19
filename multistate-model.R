@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 14 September 2023
+# Last updated: 19 March 2024
 ################################################################################
 
 library(dplyr)
@@ -413,129 +413,140 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                    precip = precip.aj.mat,
                    effort = effort.mat)
   
-# Model
+  # Model
   tortcode <- nimbleCode({
-
-      #-- Priors and constraints
-
-      alpha.p1 ~ dlogis(0, 1)
-      alpha.p2 ~ dlogis(0, 1)
-      beta.phi1 ~ dlogis(0, 1)
-      beta.phi2 ~ dlogis(0, 1)
-      gamma.psi ~ dlogis(0, 1)
-
-      a1.precip ~ dnorm(0, 0.1)
-      a1.effort ~ dnorm(0, 0.1)
-      a2.male ~ dnorm(0, 0.1)
-      a2.precip ~ dnorm(0, 0.1)
-      a2.effort ~ dnorm(0, 0.1)
-
-      b1.city ~ dnorm(0, 0.1)
-      b1.mnprecip ~ dnorm(0, 0.1)
-      b1.drought ~ dnorm(0, 0.1)
-      b1.int ~ dnorm(0, 0.1)
-      b2.male ~ dnorm(0, 0.1)
-      b2.city ~ dnorm(0, 0.1)
-      b2.mnprecip ~ dnorm(0, 0.1)
-      b2.drought ~ dnorm(0, 0.1)
-      b2.int ~ dnorm(0, 0.1)
-      b2.trend ~ dnorm(0, 0.1)
-      b2.trend2 ~ dnorm(0, 0.1)
-
-      c.mnprecip ~ dnorm(0, 0.1)
-
-      omega ~ dunif(0, 1)
-
-      sigma.site.2 ~ T(dt(0, pow(2.5, -2), 1), 0, )
-      tau.site.2 <- 1 / (sigma.site.2 * sigma.site.2)
-
-      for (p in 1:nplots) {
-        e.site.2[p] ~ dnorm(0, tau.site.2)
-      }
-
-      for (i in 1:ntorts) {
-        for (t in first[i]:(nyears - 1)) {
-
-          # Juvenile recapture probability
-          logit(p1[i, t]) <- alpha.p1 + a1.precip * precip[plot[i], t] + 
-                             a1.effort * effort[plot[i], t]
-          # Juvenile survival probability
-          logit(phi1[i, t]) <- beta.phi1 + b1.city * city[plot[i]] +
-                               b1.mnprecip * mn.precip[plot[i]] + 
-                               b1.drought * drought[plot[i], t] +
-                               b1.int * mn.precip[plot[i]] * drought[plot[i], t]
-
-          # Transition probability
-          logit(psi12[i, t]) <- gamma.psi + c.mnprecip * mn.precip[plot[i]]
-
-          # Adult recapture probability
-          logit(p2[i, t]) <- alpha.p2 + a2.male * male[i] + 
-                             a2.precip * precip[plot[i],t] + 
-                             a2.effort * effort[plot[i],t]
-          # Adult survival probability
-          logit(phi2[i, t]) <- beta.phi2 + b2.male * male[i] + 
-                               b2.city * city[plot[i]] + 
-                               b2.mnprecip * mn.precip[plot[i]] +
-                               b2.drought * drought[plot[i], t] + 
-                               b2.int * mn.precip[plot[i]] * drought[plot[i], t] +
-                               b2.trend * trend[t] + b2.trend2 * trend2[t] + 
-                               e.site.2[plot[i]]
-
-          # Define state transition probabilities
-          # First index = state at time t-1, last index = state at time t
-          ps[1, i ,t, 1] <- phi1[i, t] * (1 - psi12[i, t])
-          ps[1, i, t, 2] <- phi1[i, t] * psi12[i, t]
-          ps[1, i, t, 3] <- 1-phi1[i, t]
-          ps[2, i, t, 1] <- 0
-          ps[2, i, t, 2] <- phi2[i, t]
-          ps[2, i, t, 3] <- 1-phi2[i, t]
-          ps[3, i, t, 1] <- 0
-          ps[3, i, t, 2] <- 0
-          ps[3, i, t, 3] <- 1
-
-          # Define stage-dependent detection probabilities
-          # First index = state at time t, last index = detection type at time t
-          po[1, i, t, 1] <- p1[i, t]
-          po[1, i, t, 2] <- 0
-          po[1, i, t, 3] <- 1-p1[i, t]
-          po[2, i, t, 1] <- 0
-          po[2, i, t, 2] <- p2[i, t]
-          po[2, i, t, 3] <- 1-p2[i, t]
-          po[3, i, t, 1] <- 0
-          po[3, i, t, 2] <- 0
-          po[3, i, t, 3] <- 1
-
-        } # t
-      } # i
-
-      #-- Likelihood
-
-      for (i in 1:ntorts) {
-        z[i, first[i]] <- y[i, first[i]]
-        male[i] ~ dbern(omega)
-
-        for (t in (first[i] + 1):nyears) {
-
-          # State process: draw State[t] given State[t-1]
-          z[i, t] ~ dcat(ps[z[i, t-1], i, t-1, 1:3])
-
-          # Observation process: draw Obs[t] given State[t]
-          y[i, t] ~ dcat(po[z[i, t], i, t-1, 1:3])
-
-        } # t
-      } # i
+    
+    #-- Priors and constraints
+    
+    alpha.p1 ~ dlogis(0, 1)
+    alpha.p2 ~ dlogis(0, 1)
+    beta.phi1 ~ dlogis(0, 1)
+    beta.phi2 ~ dlogis(0, 1)
+    gamma.psi ~ dlogis(0, 1)
+    
+    a1.precip ~ dnorm(0, 0.1)
+    a1.effort ~ dnorm(0, 0.1)
+    a2.male ~ dnorm(0, 0.1)
+    a2.precip ~ dnorm(0, 0.1)
+    a2.effort ~ dnorm(0, 0.1)
+    
+    b1.city ~ dnorm(0, 0.1)
+    b1.mnprecip ~ dnorm(0, 0.1)
+    b1.drought ~ dnorm(0, 0.1)
+    b1.int ~ dnorm(0, 0.1)
+    b2.male ~ dnorm(0, 0.1)
+    b2.city ~ dnorm(0, 0.1)
+    b2.mnprecip ~ dnorm(0, 0.1)
+    b2.drought ~ dnorm(0, 0.1)
+    b2.int ~ dnorm(0, 0.1)
+    b2.trend ~ dnorm(0, 0.1)
+    b2.trend2 ~ dnorm(0, 0.1)
+    
+    c.mnprecip ~ dnorm(0, 0.1)
+    
+    omega ~ dunif(0, 1)
+    
+    sigma.site.1 ~ T(dt(0, pow(2.5, -2), 1), 0, )
+    tau.site.1 <- 1 / (sigma.site.1 * sigma.site.1)
+    
+    sigma.site.2 ~ T(dt(0, pow(2.5, -2), 1), 0, )
+    tau.site.2 <- 1 / (sigma.site.2 * sigma.site.2)
+    
+    sigma.site.t ~ T(dt(0, pow(2.5, -2), 1), 0, )
+    tau.site.t <- 1 / (sigma.site.t * sigma.site.t)
+    
+    for (p in 1:nplots) {
+      e.site.1[p] ~ dnorm(0, tau.site.1)
+      e.site.2[p] ~ dnorm(0, tau.site.2)
+      e.site.t[p] ~ dnorm(0, tau.site.t)
+    }
+    
+    for (i in 1:ntorts) {
+      for (t in first[i]:(nyears - 1)) {
+        
+        # Juvenile recapture probability
+        logit(p1[i, t]) <- alpha.p1 + a1.precip * precip[plot[i], t] + 
+          a1.effort * effort[plot[i], t]
+        # Juvenile survival probability
+        logit(phi1[i, t]) <- beta.phi1 + b1.city * city[plot[i]] +
+          b1.mnprecip * mn.precip[plot[i]] + 
+          b1.drought * drought[plot[i], t] +
+          b1.int * mn.precip[plot[i]] * drought[plot[i], t] +
+          e.site.1[plot[i]]
+        
+        # Transition probability
+        logit(psi12[i, t]) <- gamma.psi + c.mnprecip * mn.precip[plot[i]] +
+          e.site.t[plot[i]]
+        
+        # Adult recapture probability
+        logit(p2[i, t]) <- alpha.p2 + a2.male * male[i] + 
+          a2.precip * precip[plot[i],t] + 
+          a2.effort * effort[plot[i],t]
+        # Adult survival probability
+        logit(phi2[i, t]) <- beta.phi2 + b2.male * male[i] + 
+          b2.city * city[plot[i]] + 
+          b2.mnprecip * mn.precip[plot[i]] +
+          b2.drought * drought[plot[i], t] + 
+          b2.int * mn.precip[plot[i]] * drought[plot[i], t] +
+          b2.trend * trend[t] + b2.trend2 * trend2[t] + 
+          e.site.2[plot[i]]
+        
+        # Define state transition probabilities
+        # First index = state at time t-1, last index = state at time t
+        ps[1, i ,t, 1] <- phi1[i, t] * (1 - psi12[i, t])
+        ps[1, i, t, 2] <- phi1[i, t] * psi12[i, t]
+        ps[1, i, t, 3] <- 1-phi1[i, t]
+        ps[2, i, t, 1] <- 0
+        ps[2, i, t, 2] <- phi2[i, t]
+        ps[2, i, t, 3] <- 1-phi2[i, t]
+        ps[3, i, t, 1] <- 0
+        ps[3, i, t, 2] <- 0
+        ps[3, i, t, 3] <- 1
+        
+        # Define stage-dependent detection probabilities
+        # First index = state at time t, last index = detection type at time t
+        po[1, i, t, 1] <- p1[i, t]
+        po[1, i, t, 2] <- 0
+        po[1, i, t, 3] <- 1-p1[i, t]
+        po[2, i, t, 1] <- 0
+        po[2, i, t, 2] <- p2[i, t]
+        po[2, i, t, 3] <- 1-p2[i, t]
+        po[3, i, t, 1] <- 0
+        po[3, i, t, 2] <- 0
+        po[3, i, t, 3] <- 1
+        
+      } # t
+    } # i
+    
+    #-- Likelihood
+    
+    for (i in 1:ntorts) {
+      z[i, first[i]] <- y[i, first[i]]
+      male[i] ~ dbern(omega)
+      
+      for (t in (first[i] + 1):nyears) {
+        
+        # State process: draw State[t] given State[t-1]
+        z[i, t] ~ dcat(ps[z[i, t-1], i, t-1, 1:3])
+        
+        # Observation process: draw Obs[t] given State[t]
+        y[i, t] ~ dcat(po[z[i, t], i, t-1, 1:3])
+        
+      } # t
+    } # i
   })
-
-# Parameters to monitor
+  
+  # Parameters to monitor
   params <- c("alpha.p1", "a1.precip", "a1.effort",
               "beta.phi1", "b1.city", "b1.mnprecip", "b1.drought", "b1.int",
               "gamma.psi", "c.mnprecip",
               "alpha.p2", "a2.male", "a2.precip", "a2.effort",
               "beta.phi2", "b2.male", "b2.city", "b2.mnprecip", 
               "b2.drought", "b2.int", "b2.trend", "b2.trend2",
-              "omega", "sigma.site.2", "e.site.2")
+              "omega", "sigma.site.1", "e.site.1", "sigma.site.2", "e.site.2",
+              "sigma.site.t", "e.site.t")
   
-# Initial values
+  # Initial values
   inits <- function() {list(alpha.p1 = runif(1, -1, 1),
                             alpha.p2 = runif(1, -1, 2),
                             beta.phi1 = runif(1, -1, 1),
@@ -559,7 +570,9 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                             b2.trend2 = runif(1, -0.5, 0.5),
                             c.mnprecip = runif(1, -0.5, 0.5),
                             omega = runif(1, 0, 1),
+                            sigma.site.1 = runif(1, 0, 3),
                             sigma.site.2 = runif(1, 0, 3),
+                            sigma.site.t = runif(1, 0, 3),
                             male = ifelse(is.na(male.ind), 1, NA),
                             z = ch.init(as.matrix(ch.mat), first1, first2))}
   
@@ -567,7 +580,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   tortconstants <- tortdata
   tortconstants[c("male", "y")] <- NULL
 
-# Create model object (~ 8 min)
+# Create model object (~ 15 min)
   # tortmodel <- nimbleModel(code = tortcode, constants = tortconstants, 
   #                          calculate = FALSE)
 
@@ -577,11 +590,11 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   # set.seed(123)
   # tortmodel$setInits(inits())
 
-# Build MCMC (~ 53 min)
+# Build MCMC (~ 69 min)
   # tortmcmc <- buildMCMC(tortmodel,
   #                       monitors = params)
 
-# Compile the model and MCMC (~ 26 min)
+# Compile the model and MCMC (~ 21 min)
   # Ctortmodel <- compileNimble(tortmodel)
   # Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
 
@@ -592,7 +605,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   n.thin <- 15
   ni.tot <- n.iter + n.burn
     
-# Run the MCMC and extract the samples (~13.4 hrs)
+# Run the MCMC and extract the samples (~ 13 hrs)
   # samples <- runMCMC(
   #   Ctortmcmc,
   #   nchains = n.chains,
@@ -655,7 +668,8 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 #------------------------------------------------------------------------------# 
 # Effect of drought on survival
 #------------------------------------------------------------------------------#	
-
+# Note: not taking site-level random effects into account in CI calculations
+  
 # Adults
   # Use survival estimates for last year (2019-2020)
   # Assume average distance from city (standardized distance = 0)
@@ -826,7 +840,8 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 #------------------------------------------------------------------------------# 
 # Temporal trends in adult survival
 #------------------------------------------------------------------------------#	  
-
+# Again, not taking site-level random effects into account for CI calculations
+  
 # For an average site (mean distance from city, annual precip) with PDSI = 0
 phi2t <- samples_df %>% 
   select(beta.phi2, b2.male, b2.trend, b2.trend2) %>%
@@ -1005,17 +1020,22 @@ pdsi_plot <- ggplot() +
 # Plot-specific estimates of demographic rates
 #------------------------------------------------------------------------------#
 # Generating values for 2019-2020, with drought = 0
+# Here, we are accounting for site-level random effects
 
 # Juvenile survival
   phi1p <- samples_df %>%
     select(beta.phi1, b1.city, b1.mnprecip)
+  phi1RE <- select(samples_df, contains("e.site.1"))
+  
   predp1x <- cbind(int = 1, city = city, mnprecip = precip.norm)
   predp1l <- predp1x %*% t(phi1p)
+  RE1_mat <- t(phi1RE)
+  predp1l <- predp1l + RE1_mat
   predp1 <- exp(predp1l)/(1 + exp(predp1l))  
   plotests <- data.frame(plot = plots$plot) %>%
-    mutate(juv = round(apply(predp1, 1, ctend), 2),
-           juv_lcl = round(apply(predp1, 1, quantile, qprobs[1]), 2),
-           juv_ucl = round(apply(predp1, 1, quantile, qprobs[2]), 2))
+    mutate(juv = apply(predp1, 1, ctend),
+           juv_lcl = apply(predp1, 1, quantile, qprobs[1]),
+           juv_ucl = apply(predp1, 1, quantile, qprobs[2]))
 
 # Adult survival
   phi2p <- samples_df %>%
@@ -1031,12 +1051,12 @@ pdsi_plot <- ggplot() +
   predp <- exp(predpl)/(1 + exp(predpl)) 
   
   plotests <- plotests %>%
-    mutate(ad_fem = round(apply(predp[1:17, ], 1, ctend), 2),
-           ad_fem_lcl = round(apply(predp[1:17, ], 1, quantile, qprobs[1]), 2),
-           ad_fem_ucl = round(apply(predp[1:17, ], 1, quantile, qprobs[2]), 2),
-           ad_male = round(apply(predp[18:34, ], 1, ctend), 2),
-           ad_male_lcl = round(apply(predp[18:34, ], 1, quantile, qprobs[1]), 2),
-           ad_male_ucl = round(apply(predp[18:34, ], 1, quantile, qprobs[2]), 2))
+    mutate(ad_fem = apply(predp[1:17, ], 1, ctend),
+           ad_fem_lcl = apply(predp[1:17, ], 1, quantile, qprobs[1]),
+           ad_fem_ucl = apply(predp[1:17, ], 1, quantile, qprobs[2]),
+           ad_male = apply(predp[18:34, ], 1, ctend),
+           ad_male_lcl = apply(predp[18:34, ], 1, quantile, qprobs[1]),
+           ad_male_ucl = apply(predp[18:34, ], 1, quantile, qprobs[2]))
   
   # M/F survival in 2019-2020, across all plots
   phi2pA <- select(samples_df, c(beta.phi2, b2.male, b2.trend, b2.trend2))
@@ -1045,20 +1065,24 @@ pdsi_plot <- ggplot() +
   predplA <- predpxA %*% t(phi2pA)
   predpA <- exp(predplA)/(1 + exp(predplA)) 
   adsurvivalests <- data.frame(sex = c("F", "M")) %>%
-    mutate(mn = round(apply(predpA, 1, ctend), 2),
-           lcl = round(apply(predpA, 1, quantile, qprobs[1]), 2),
-           ucl = round(apply(predpA, 1, quantile, qprobs[2]), 2))
+    mutate(mn = apply(predpA, 1, ctend),
+           lcl = apply(predpA, 1, quantile, qprobs[1]),
+           ucl = apply(predpA, 1, quantile, qprobs[2]))
   adsurvivalests
 
 # Transition rates
   psi12p <- select(samples_df, c(gamma.psi, c.mnprecip))
+  psi12RE <- select(samples_df, contains("e.site.t"))
+  
   predpsix <- cbind(int = 1, mnprecip = precip.norm)
   predpsil <- predpsix %*% t(psi12p)
+  RE12_mat <- t(psi12RE)
+  predpsil <- predpsil + RE12_mat
   predpsi <- exp(predpsil) / (1 + exp(predpsil))
   plotests <- plotests %>%
-    mutate(trans = round(apply(predpsi, 1, ctend), 2),
-           trans_lcl = round(apply(predpsi, 1, quantile, qprobs[1]), 2),
-           trans_ucl = round(apply(predpsi, 1, quantile, qprobs[2]), 2))
+    mutate(trans = apply(predpsi, 1, ctend),
+           trans_lcl = apply(predpsi, 1, quantile, qprobs[1]),
+           trans_ucl = apply(predpsi, 1, quantile, qprobs[2]))
 
 # Add overall estimates to bottom of table
 plotests_add <- data.frame(plot = "Overall",
@@ -1075,8 +1099,6 @@ plotests_add <- data.frame(plot = "Overall",
                            trans_lcl = quantile(samples_df$psi12.mn, qprobs[1]),
                            trans_ucl = quantile(samples_df$psi12.mn, qprobs[2]),
                            row.names = NULL) 
-plotests_add <- plotests_add %>%
-  mutate(across(juv:trans_ucl, function(x) round(x, 2)))
 plotests <- rbind(plotests, plotests_add)
 plotests
 
@@ -1123,7 +1145,10 @@ plotests
     select(beta.phi1, b1.city, b1.mnprecip, b1.drought, b1.int) %>%
     as.matrix()
   lphi1 <- phi1_X %*% t(phi1s)
-  phi1 <- exp(lphi1) / (1+exp(lphi1))
+  REs1 <- t(phi1RE)
+  REs1 <- REs1[rep(seq_len(nrow(REs1)), each = 3), ]
+  lphi1RE <- lphi1 + REs1
+  phi1 <- exp(lphi1RE) / (1+exp(lphi1RE))
   
   # Adult FEMALE survival (need to add in random site effects)
   phi2s_f <- samples_df %>%
@@ -1132,7 +1157,7 @@ plotests
     as.matrix()
   lphi2 <- phi2_X %*% t(phi2s_f)
   REs <- t(phi2RE)
-  REs <- REs[rep(seq_len(nrow(REs)), each=3), ]
+  REs <- REs[rep(seq_len(nrow(REs)), each = 3), ]
   lphi2RE <- lphi2 + REs
   phi2 <- exp(lphi2RE) / (1 + exp(lphi2RE))	
   
@@ -1141,7 +1166,10 @@ plotests
     select(gamma.psi, c.mnprecip) %>%
     as.matrix()
   lpsi12 <- psi12_X %*% t(psi12s)
-  psi12 <- exp(lpsi12) / (1 + exp(lpsi12))
+  REs12 <- t(psi12RE)
+  REs12 <- REs12[rep(seq_len(nrow(REs12)), each = 3), ]
+  lpsi12RE <- lpsi12 + REs12
+  psi12 <- exp(lpsi12RE) / (1 + exp(lpsi12RE))
   
 # Create population projection matrices, and estimate lambda values
   # Assuming recruitment = 0.32 f/f/yr 
@@ -1199,12 +1227,42 @@ plotests
            q0.95 = apply(lambdaO, 1, quantile, 0.95),
            q0.975 = apply(lambdaO, 1, quantile, 0.975),
            probdecline = apply(lambdaO, 1, function(x) sum(x < 1) / length(x)))
+
+# Correlations among demographic parameter estimates
+  cor(plotests[, c("juv", "ad_fem", "ad_male", "trans")])
+  plot(plotests[, c("juv", "ad_fem", "ad_male", "trans")])
   
+# Correlations between lambda estimates (for neutral climate conditions) and 
+# demographic parameters
+  lam0 <- lambdas %>% filter(drought == 0)
+  
+  # Check
+  # all.equal(lam0$plot, plotests$plot[1:17])
+  
+  # Adult survival (female)
+  plot(lam0$mn ~ plotests$ad_fem[1:17])
+  cor.test(lam0$mn, plotests$ad_fem[1:17])
+  # r = -0.08 (P = 0.75)
+
+  # Juvenile survival
+  plot(lam0$mn ~ plotests$juv[1:17])
+  cor.test(lam0$mn, plotests$juv[1:17])
+  # r = 0.89 (P < 0.001)
+  
+  # Transition rate
+  plot(lam0$mn ~ plotests$trans[1:17])
+  cor.test(lam0$mn, plotests$trans[1:17])
+  # r = 0.59 (P = 0.01), though one plot (WM) seems to have a lot of leverage
+  # with very high transition rate and lambda
+  cor.test(lam0$mn[c(1:15,17)], plotests$trans[c(1:15, 17)])
+  # r = 0.42 (P = 0.10)
+
 # Correlations between lambda values and latitude/longitude
-  lambdas2 <- lambdas %>%
+  lam0 <- lam0 %>%
     left_join(plots[, c("plot", "lat", "long")], by = "plot")
 
-  cor.test(lambdas2$mn[lambdas2$drought == -3],
-           lambdas2$lat[lambdas2$drought == -3])
-  cor.test(lambdas2$mn[lambdas2$drought == -3],
-           lambdas2$long[lambdas2$drought == -3])
+  cor.test(lam0$mn, lam0$lat)
+  # No correlation with latitude (r = -0.06, P = 0.82)
+  cor.test(lam0$mn, lam0$long)
+  # Very weak positive correlation with longitude (r = 0.31, P = 0.22)
+  
