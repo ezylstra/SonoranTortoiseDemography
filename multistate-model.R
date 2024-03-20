@@ -637,11 +637,26 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   # MCMCplot(samples,
   #          params = "all", # excl = ""
   #          ci = c(50, 90))  
-  
+
 # Create matrix with samples  
   samples_mat <- MCMCchains(samples, 
                             params = "all",
                             mcmc.list = FALSE)
+  
+# Create a table with parameter estimates for the manuscript
+  params <- c("beta.phi1", "b1.city", "b1.mnprecip", "b1.drought", "b1.int", 
+              "sigma.site.1", "beta.phi2", "b2.male", "b2.city", "b2.mnprecip",
+              "b2.drought", "b2.int", "b2.trend", "b2.trend2", "sigma.site.2",
+              "gamma.psi", "c.mnprecip", "sigma.site.t", "alpha.p1", "a1.precip",
+              "a1.effort", "alpha.p2", "a2.male", "a2.precip", "a2.effort")
+  param_table <- data.frame(parameter = params) %>%
+    mutate(Mean = apply(samples_mat[, params], 2, mean),
+           lcl = apply(samples_mat[, params], 2, quantile, probs = 0.025),
+           ucl = apply(samples_mat[, params], 2, quantile, probs = 0.975),
+           greater0 = apply(samples_mat[, params], 2, function(x) sum(x > 0)/length(x)),
+           f = if_else(greater0 < 0.5, 1 - greater0, greater0)) %>%
+    select(-greater0)
+  # write.csv(param_table, "output/parameter_estimates.csv", row.names = FALSE)
   
 # Calculate derived parameters
   samples_df <- data.frame(samples_mat) %>%
@@ -1184,6 +1199,17 @@ plotests
       lambda[i, j] <- eigen(proj.mat)$values[1]
     }
   }   
+  
+  # Note: if I want to calculate sensitivities/elasticities, can use popbio or
+  # matrix functions:
+    # w <- eigen(proj.mat)$vectors
+    # v <- Conj(solve(w))
+    # sens <- Re(v[1,] %*% t(w[,1]))
+    # elas <- (1/(Re(eigen(proj.mat)$values[1]))) * sens * proj.mat
+    # library(popbio)
+    # sensitivity(proj.mat)
+    # elasticity(proj.mat)
+  # Not sure if/how I want to incorporate this across iterations, plots, etc.
   
 # Summarize distributions of lambda values for each plot-drought combination
   lambdas <- data.frame(plot = phi_Xdf$plot, drought = drought3) %>%
