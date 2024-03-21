@@ -623,10 +623,11 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   #          params = "all", # excl = ""
   #          ci = c(50, 90))  
 
-# Create matrix with samples  
+# Create matrix, dataframe with samples  
   samples_mat <- MCMCchains(samples, 
                             params = "all",
                             mcmc.list = FALSE)
+  samples_df <- data.frame(samples_mat)
   
 # Create a table with parameter estimates for the manuscript
   params <- c("beta.phi1", "b1.city", "b1.mnprecip", "b1.drought", "b1.int", 
@@ -644,16 +645,6 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 
 # Write to file  
 # write.csv(param_table, "output/parameter_estimates.csv", row.names = FALSE)
-  
-# Calculate derived parameters
-  samples_df <- data.frame(samples_mat) %>%
-    mutate(psi12.mn = exp(gamma.psi) / (1 + exp(gamma.psi)),
-           phi1.mn = exp(beta.phi1) / (1 + exp(beta.phi1)),
-           p1.mn = exp(alpha.p1) / (1 + exp(alpha.p1)),
-           phi2.f = exp(beta.phi2) / (1 + exp(beta.phi2)),
-           phi2.m = exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male)),
-           p2.f = exp(alpha.p2) / (1 + exp(alpha.p2)),
-           p2.m = exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male)))
 
 #------------------------------------------------------------------------------# 
 # Table: plot characteristics, capture data
@@ -751,7 +742,7 @@ plot_summaries <- rbind(plot_summaries, to_add)
   xmin <- min(pdsi.24.mat)
   xmax <- max(pdsi.24.mat)
   predx <- cbind(int = 1, male = rep(0:1, each = 300),
-                 mnprecip = rep(rep(mnprecip3.z, 2), each=100),
+                 mnprecip = rep(rep(mnprecip3.z, 2), each = 100),
                  drought = rep(seq(xmin, xmax, length = 100), 6))
   predx <- cbind(predx, interact = predx[,3] * predx[,4],
                  trend = tail(trend.z, 1), trend2 = tail(trend.z2, 1))
@@ -910,8 +901,9 @@ plot_summaries <- rbind(plot_summaries, to_add)
 # Temporal trends in adult survival
 #------------------------------------------------------------------------------#	  
 # Again, not taking site-level random effects into account for CI calculations
-  
-# For an average site (mean distance from city, annual precip) with PDSI = 0
+
+# For an average site (mean distance from city, annual precip) with PDSI = mean
+# value during study period (-1.08; drought.z = 0)
 phi2t <- samples_df %>% 
   select(beta.phi2, b2.male, b2.trend, b2.trend2) %>%
   as.matrix()
@@ -1090,363 +1082,368 @@ pdsi_plot <- ggplot() +
 #        units = "in")
 
 #------------------------------------------------------------------------------# 
-# Plot-specific estimates of demographic rates
+# Plot-specific estimates of demographic rates, lambdas
 #------------------------------------------------------------------------------#
-# Generating values for 2019-2020, with drought = 0
-# Here, we are accounting for site-level random effects
+# For adult survival, generating values for 2019-2020
+# For survival and transition rates, generating values for 4 levels of drought: 
+  # mean PDSI = -3, -1.08 (mean value across plots and years), 0, +3
+# Will account for site-level random effects in all demographic parameters
+# Will assume recruitment = 0.32 f/f/yr 
+
+drought4 <- c(-3, pdsi.24.mn, 0, 3)
+drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
 
 # Juvenile survival
-  phi1p <- samples_df %>%
-    select(beta.phi1, b1.city, b1.mnprecip)
-  phi1RE <- select(samples_df, contains("e.site.1"))
+  # Grab random effects for each plot
+  phi1_RE <- select(samples_df, contains("e.site.1"))
+  # Grab posterior samples for fixed parameters
+  phi1_samples <- samples_df %>% 
+    select(beta.phi1, b1.city, b1.mnprecip, b1.drought, b1.int)
+  # Gather covariate values
+  phi1_X <- data.frame(plot = rep(plots$plot, 4),
+                       intercept = 1,
+                       city = rep(city, 4),
+                       mnprecip = rep(precip.norm, 4),
+                       drought = rep(drought4.z, each = nrow(plots))) %>%
+    mutate(int = mnprecip * drought)
+    # check: 
+    # head(phi1_X, 18)
+  # Matrix math
+  phi1_l <- as.matrix(select(phi1_X, -plot)) %*% t(phi1_samples)
+  # Add in random effects
+  phi1_l <- phi1_l + rbind(t(phi1_RE), t(phi1_RE), t(phi1_RE), t(phi1_RE))
+  # Put on probability scale 
+  phi1_mat <- exp(phi1_l) / (1 + exp(phi1_l))
   
-  predp1x <- cbind(int = 1, city = city, mnprecip = precip.norm)
-  predp1l <- predp1x %*% t(phi1p)
-  RE1_mat <- t(phi1RE)
-  predp1l <- predp1l + RE1_mat
-  predp1 <- exp(predp1l)/(1 + exp(predp1l))  
-  plotests <- data.frame(plot = plots$plot) %>%
-    mutate(juv = apply(predp1, 1, ctend),
-           juv_lcl = apply(predp1, 1, quantile, qprobs[1]),
-           juv_ucl = apply(predp1, 1, quantile, qprobs[2]))
-
-# Adult survival
-  phi2p <- samples_df %>%
-    select(beta.phi2, b2.male, b2.city, b2.mnprecip, b2.trend, b2.trend2)
-  phi2RE <- select(samples_df, contains("e.site.2"))
-
-  predpx <- cbind(int = 1, male = rep(0:1, each = 17), city = rep(city, 2),
-                  mnprecip = rep(precip.norm, 2), trend = tail(trend.z, 1),
-                  trend2 = tail(trend.z2, 1))
-  predpl <- predpx %*% t(phi2p)
-  RE_mat <- rbind(t(phi2RE), t(phi2RE))
-  predpl <- predpl + RE_mat
-  predp <- exp(predpl)/(1 + exp(predpl)) 
+# Adult male survival
+  # Grab random effects for each plot
+  phi2_RE <- select(samples_df, contains("e.site.2"))
+  # Grab posterior samples for fixed parameters
+  phi2_samples <- samples_df %>% 
+    select(beta.phi2, b2.male, b2.city, b2.mnprecip, b2.drought, b2.int, 
+           b2.trend, b2.trend2)
+  # Gather covariate values
+  phi2m_X <- data.frame(plot = rep(plots$plot, 4),
+                        intercept = 1,
+                        male = 1,
+                        city = rep(city, 4),
+                        mnprecip = rep(precip.norm, 4),
+                        drought = rep(drought4.z, each = nrow(plots))) %>%
+    mutate(int = mnprecip * drought) %>%
+    mutate(trend = tail(trend.z, 1),
+           trend2 = trend * trend)
+    # check: 
+    # head(phi2m_X, 18)
+  # Matrix math
+  phi2m_l <- as.matrix(select(phi2m_X, -plot)) %*% t(phi2_samples)
+  # Add in random effects
+  phi2m_l <- phi2m_l + rbind(t(phi2_RE), t(phi2_RE), t(phi2_RE), t(phi2_RE))
+  # Put on probability scale 
+  phi2m_mat <- exp(phi2m_l) / (1 + exp(phi2m_l))  
   
-  plotests <- plotests %>%
-    mutate(ad_fem = apply(predp[1:17, ], 1, ctend),
-           ad_fem_lcl = apply(predp[1:17, ], 1, quantile, qprobs[1]),
-           ad_fem_ucl = apply(predp[1:17, ], 1, quantile, qprobs[2]),
-           ad_male = apply(predp[18:34, ], 1, ctend),
-           ad_male_lcl = apply(predp[18:34, ], 1, quantile, qprobs[1]),
-           ad_male_ucl = apply(predp[18:34, ], 1, quantile, qprobs[2]))
+# Adult female survival
+  # Gather covariate values
+  phi2f_X <- phi2m_X %>% mutate(male = 0)
+  # Matrix math
+  phi2f_l <- as.matrix(select(phi2f_X, -plot)) %*% t(phi2_samples)
+  # Add in random effects
+  phi2f_l <- phi2f_l + rbind(t(phi2_RE), t(phi2_RE), t(phi2_RE), t(phi2_RE))
+  # Put on probability scale 
+  phi2f_mat <- exp(phi2f_l) / (1 + exp(phi2f_l))  
   
-  # M/F survival in 2019-2020, across all plots
-  phi2pA <- select(samples_df, c(beta.phi2, b2.male, b2.trend, b2.trend2))
-  predpxA <- cbind(int = 1, male = 0:1, 
-                   trend = tail(trend.z, 1), trend2 = tail(trend.z2, 1))
-  predplA <- predpxA %*% t(phi2pA)
-  predpA <- exp(predplA)/(1 + exp(predplA)) 
-  adsurvivalests <- data.frame(sex = c("F", "M")) %>%
-    mutate(mn = apply(predpA, 1, ctend),
-           lcl = apply(predpA, 1, quantile, qprobs[1]),
-           ucl = apply(predpA, 1, quantile, qprobs[2]))
-  adsurvivalests
-
-# Transition rates
-  psi12p <- select(samples_df, c(gamma.psi, c.mnprecip))
-  psi12RE <- select(samples_df, contains("e.site.t"))
-  
-  predpsix <- cbind(int = 1, mnprecip = precip.norm)
-  predpsil <- predpsix %*% t(psi12p)
-  RE12_mat <- t(psi12RE)
-  predpsil <- predpsil + RE12_mat
-  predpsi <- exp(predpsil) / (1 + exp(predpsil))
-  plotests <- plotests %>%
-    mutate(trans = apply(predpsi, 1, ctend),
-           trans_lcl = apply(predpsi, 1, quantile, qprobs[1]),
-           trans_ucl = apply(predpsi, 1, quantile, qprobs[2]))
-
-# Add overall estimates to bottom of table
-# TODO: figure out whether I need to incorporate spatial random effects when
-# calculating mean demographic rate across all plots
-plotests_add <- data.frame(plot = "Overall",
-                           juv = ctend(samples_df$phi1.mn),
-                           juv_lcl = quantile(samples_df$phi1.mn, qprobs[1]),
-                           juv_ucl = quantile(samples_df$phi1.mn, qprobs[2]),
-                           ad_fem = adsurvivalests$mn[adsurvivalests$sex == "F"],
-                           ad_fem_lcl = adsurvivalests$lcl[adsurvivalests$sex == "F"],
-                           ad_fem_ucl = adsurvivalests$ucl[adsurvivalests$sex == "F"],
-                           ad_male = adsurvivalests$mn[adsurvivalests$sex == "M"],
-                           ad_male_lcl = adsurvivalests$lcl[adsurvivalests$sex == "M"],
-                           ad_male_ucl = adsurvivalests$ucl[adsurvivalests$sex == "M"],
-                           trans = ctend(samples_df$psi12.mn),
-                           trans_lcl = quantile(samples_df$psi12.mn, qprobs[1]),
-                           trans_ucl = quantile(samples_df$psi12.mn, qprobs[2]),
-                           row.names = NULL)
-plotests <- rbind(plotests, plotests_add)
-plotests
-
-#------------------------------------------------------------------------------# 
-# Population growth rates
-#------------------------------------------------------------------------------#	
-
-# Gather plot-specific covariate values (standardized)
-  plotcovs <- data.frame(plot = plots$plot,
-                         city.z = city, 
-                         mnprecip.z = precip.norm)
-  
-  # For each plot, using 3 drought values (-3, 0, +3)
-  phi_Xdf <- plotcovs[rep(seq_len(nrow(plotcovs)), each = 3),] 
-  drought3 <- rep(c(-3, 0, 3), nrow(plotcovs))
-  phi_Xdf <- phi_Xdf %>%
-    mutate(drought.z = (drought3 - pdsi.24.mn) / pdsi.24.sd,
-           int.z = mnprecip.z * drought.z)
-
-  # Create a matrix of covariate values for juvenile survival  
-  phi1_X <- phi_Xdf %>%
-    select(city.z, mnprecip.z, drought.z, int.z) %>%
-    mutate(int = 1, .before = city.z) %>%
-    as.matrix()
-
-  # Create a matrix of covariate values for adult survival 
-  # Last two columns are for the trend effect (using 2019-2020 estimates)
-  phi2_X <- phi_Xdf %>%
-    select(city.z, mnprecip.z, drought.z, int.z) %>%
-    mutate(trend.z = tail(trend.z, 1),
-           trend.z2 = tail(trend.z2, 1)) %>%
-    mutate(int = 1, .before = city.z) %>%
-    as.matrix()
-
-  # Create a matrix of covariate values for transition rate  
-  psi12_X <- phi_Xdf %>%
-    select(mnprecip.z) %>%
-    mutate(int = 1, .before = mnprecip.z) %>%
-    as.matrix()
-
-# Calculate surv, trans estimates for each combination of covariates, iteration
-  # Juvenile survival
-  phi1s <- samples_df %>%
-    select(beta.phi1, b1.city, b1.mnprecip, b1.drought, b1.int) %>%
-    as.matrix()
-  lphi1 <- phi1_X %*% t(phi1s)
-  REs1 <- t(phi1RE)
-  REs1 <- REs1[rep(seq_len(nrow(REs1)), each = 3), ]
-  lphi1RE <- lphi1 + REs1
-  phi1 <- exp(lphi1RE) / (1+exp(lphi1RE))
-  
-  # Adult FEMALE survival
-  phi2s_f <- samples_df %>%
-    select(beta.phi2, b2.city, b2.mnprecip, b2.drought, 
-           b2.int, b2.trend, b2.trend2) %>%
-    as.matrix()
-  lphi2 <- phi2_X %*% t(phi2s_f)
-  REs <- t(phi2RE)
-  REs <- REs[rep(seq_len(nrow(REs)), each = 3), ]
-  lphi2RE <- lphi2 + REs
-  phi2 <- exp(lphi2RE) / (1 + exp(lphi2RE))	
-  
-  # Transition rates
-  psi12s <- samples_df %>%
-    select(gamma.psi, c.mnprecip) %>%
-    as.matrix()
-  lpsi12 <- psi12_X %*% t(psi12s)
-  REs12 <- t(psi12RE)
-  REs12 <- REs12[rep(seq_len(nrow(REs12)), each = 3), ]
-  lpsi12RE <- lpsi12 + REs12
-  psi12 <- exp(lpsi12RE) / (1 + exp(lpsi12RE))
-  
-# Create population projection matrices, and estimate lambda values
-  # Assuming recruitment = 0.32 f/f/yr 
-  
-  lambda <- matrix(NA, nrow = nrow(phi2), ncol = ncol(phi2))
-  
-  for(i in 1:nrow(phi2)){ 
-    for (j in 1:ncol(phi2)){
-      proj.mat <- matrix(c(phi1[i, j] * (1 - psi12[i, j]), 0.32,
-                           phi1[i, j] * psi12[i, j], phi2[i, j]),
-                         nrow = 2,ncol = 2, byrow=TRUE)
-      lambda[i, j] <- eigen(proj.mat)$values[1]
-    }
-  }   
-  
-  # Note: if I want to calculate sensitivities/elasticities, can use popbio or
-  # matrix functions:
-    # w <- eigen(proj.mat)$vectors
-    # v <- Conj(solve(w))
-    # sens <- Re(v[1,] %*% t(w[,1]))
-    # elas <- (1/(Re(eigen(proj.mat)$values[1]))) * sens * proj.mat
-    # library(popbio)
-    # sensitivity(proj.mat)
-    # elasticity(proj.mat)
-  # Not sure if/how I want to incorporate this across iterations, plots, etc.
-  
-# Summarize distributions of lambda values for each plot-drought combination
-  lambdas <- data.frame(plot = phi_Xdf$plot, drought = drought3) %>%
-    mutate(mn = apply(lambda, 1, mean),
-           q0.025 = apply(lambda, 1, quantile, 0.025),
-           q0.05 = apply(lambda, 1, quantile, 0.05),
-           q0.5 = apply(lambda, 1, quantile, 0.5),
-           q0.95 = apply(lambda, 1, quantile, 0.95),
-           q0.975 = apply(lambda, 1, quantile, 0.975),
-           probdecline = apply(lambda, 1, function(x) sum(x < 1) / length(x)))
-  
-#------------------------------------------------------------------------------# 
-# Comparing demographic rates and lambda at each plot (under neutral climate)
-#------------------------------------------------------------------------------#	  
-
-lam0 <- lambdas %>% filter(drought == 0) 
-ests <- lam0 %>%
-  select(plot, mn, q0.025, q0.975) %>%
-  rename(lambda = mn,
-         lambda_lcl = q0.025,
-         lambda_ucl = q0.975) %>%
-  left_join(filter(plotests, plot != "Overall"), by = "plot")
-
-barc <- "gray"
-barw <- 0.3
-
-juvlambda <- ggplot(ests, aes(x = juv, y = lambda)) +
-  geom_errorbar(aes(xmin = juv_lcl, xmax = juv_ucl), 
-                col = barc, linewidth = barw) +
-  geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
-                col = barc, linewidth = barw) +
-  geom_point() +
-  labs(x = "Juvenile survival", y = "Rate of popuation change") +
-  theme_classic() +
-  theme(text = element_text(size = 9),
-        axis.text = element_text(size = 9))
-adlambda <- ggplot(ests, aes(x = ad_fem, y = lambda)) +
-  geom_errorbar(aes(xmin = ad_fem_lcl, xmax = ad_fem_ucl), 
-                col = barc, linewidth = barw) +
-  geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
-                col = barc, linewidth = barw) +
-  geom_point() +
-  labs(x = "Adult female survival", y = "Rate of popuation change") +
-  scale_x_continuous(limits = c(0.89, 0.99), breaks = seq(0.9, 0.98, 0.04)) +
-  theme_classic() +
-  theme(text = element_text(size = 9),
-        axis.text = element_text(size = 9),
-        axis.title.y = element_blank(), 
-        axis.text.y = element_blank())
-translambda <- ggplot(ests, aes(x = trans, y = lambda)) +
-  geom_errorbar(aes(xmin = trans_lcl, xmax = trans_ucl), 
-                col = barc, linewidth = barw) +
-  geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
-                col = barc, linewidth = barw) +
-  geom_point() +
-  labs(x = "Transition rate", y = "Rate of popuation change") +
-  theme_classic() +
-  theme(text = element_text(size = 9),
-        axis.text = element_text(size = 9),
-        axis.title.y = element_blank(), 
-        axis.text.y = element_blank())
-demog_lambda <- plot_grid(juvlambda, adlambda, translambda, nrow = 1,
-                          rel_widths = c(1.23, 1, 1))
-
-# ggsave("output/demog_v_lambda.jpg",
-#        demog_lambda,
-#        device = "jpeg",
-#        dpi = 600,
-#        width = 6.5,
-#        height = 3,
-#        units = "in")
-
-# Correlations among demographic parameter estimates
-cor(ests[, c("juv", "ad_fem", "ad_male", "trans")])
-plot(ests[, c("juv", "ad_fem", "ad_male", "trans")])
-
-# Adult survival (female)
-plot(lam0$mn ~ plotests$ad_fem[1:17])
-cor.test(lam0$mn, plotests$ad_fem[1:17])
-# r = -0.08 (P = 0.75)
-
-# Juvenile survival
-plot(lambda ~ juv, data = ests)
-cor.test(ests$lambda, ests$juv)
-# r = 0.89 (P < 0.001)
-
 # Transition rate
-plot(lambda ~ trans, data = ests)
-cor.test(ests$lambda, ests$trans)
-# r = 0.59 (P = 0.01), though one plot (WM) seems to have a lot of leverage
-# with very high transition rate and lambda
-cor.test(ests$lambda[c(1:15, 17)], ests$trans[c(1:15, 17)])
-# r = 0.42 (P = 0.10)
-
-# Correlations between lambda values and latitude/longitude
-ests <- ests %>%
-  left_join(plots[, c("plot", "lat", "long")], by = "plot")
-
-cor.test(ests$lambda, ests$lat)
-# No correlation with latitude (r = -0.06, P = 0.82)
-cor.test(ests$lambda, ests$long)
-# Very weak positive correlation with longitude (r = 0.31, P = 0.22)
+  # Grab random effects for each plot
+  psi_RE <- select(samples_df, contains("e.site.t"))
+  # Grab posterior samples for fixed parameters
+  psi_samples <- samples_df %>% 
+    select(gamma.psi, c.mnprecip)
+  # Gather covariate values
+  psi_X <- data.frame(plot = plots$plot,
+                      intercept = 1,
+                      mnprecip = precip.norm)
+    # check: 
+    # psi_X
+  # Matrix math
+  psi_l <- as.matrix(select(psi_X, -plot)) %*% t(psi_samples)
+  # Add in random effects
+  psi_l <- psi_l + t(psi_RE)
+  # Put on probability scale 
+  psi_mat <- exp(psi_l) / (1 + exp(psi_l))
+  
+# Calculate lambdas for each plot, level of drought
+  # Will create a list with 4 lambda matrices, one for each level of drought
+  
+  lambda_plots <- list() 
+  for (d in 1:4) {
+    
+    lambda_plots[[d]] <- matrix(NA, nrow = nrow(psi_mat), ncol = ncol(psi_mat))
+    # Extract matrix of juvenile survival values for d level of drought
+    phi1 <- phi1_mat[which(phi1_X$drought == drought4.z[d]),]
+    # Extract matrix of female survival values for d level of drought
+    phi2 <- phi2f_mat[which(phi2f_X$drought == drought4.z[d]),]
+    
+    for (i in 1:nrow(psi_mat)) {
+      for (j in 1:ncol(psi_mat)) {
+        
+        proj.mat <- matrix(c(phi1[i, j] * (1 - psi_mat[i, j]), 0.32,
+                             phi1[i, j] * psi_mat[i, j], phi2[i, j]),
+                           nrow = 2, ncol = 2, byrow = TRUE)
+        lambda_plots[[d]][i, j] <- eigen(proj.mat)$values[1]
+        
+      }
+    }
+  }  
+  
+# Summarize everything:
+  lambda_plots <- do.call(rbind, lambda_plots)
+  ests_by_plot <- data.frame(plot = rep(plots$plot, 4),
+                             drought = rep(drought4, each = nrow(plots))) %>%
+    mutate(juv = apply(phi1_mat, 1, ctend),
+           juv_lcl = apply(phi1_mat, 1, quantile, qprobs[1]),
+           juv_ucl = apply(phi1_mat, 1, quantile, qprobs[2]),
+           ad_fem = apply(phi2f_mat, 1, ctend),
+           ad_fem_lcl = apply(phi2f_mat, 1, quantile, qprobs[1]),
+           ad_fem_ucl = apply(phi2f_mat, 1, quantile, qprobs[2]),
+           ad_male = apply(phi2m_mat, 1, ctend),
+           ad_male_lcl = apply(phi2m_mat, 1, quantile, qprobs[1]),
+           ad_male_ucl = apply(phi2m_mat, 1, quantile, qprobs[2]),
+           trans = rep(apply(psi_mat, 1, ctend), 4),
+           trans_lcl = rep(apply(psi_mat, 1, quantile, qprobs[1]), 4),
+           trans_ucl = rep(apply(psi_mat, 1, quantile, qprobs[2]), 4),
+           lambda = apply(lambda_plots, 1, ctend),
+           lambda_lcl = apply(lambda_plots, 1, quantile, qprobs[1]),
+           lambda_ucl = apply(lambda_plots, 1, quantile, qprobs[2]),
+           probdecline = apply(lambda_plots, 1, function(x) sum(x < 1) / length(x)))
+  
+# Write to file
+# write.csv(ests_by_plot, "output/plot-level-estimates.csv", row.names = FALSE)
 
 #------------------------------------------------------------------------------# 
-#
-#------------------------------------------------------------------------------#	    
-
-# Calculate overall lambda values (city, mnprecip = 0):
-# TODO: Same as above, figure out whether it would be good to incorporate random
-# effects...
-  # Juvenile survival
-  phi1O_X <- phi1_X[1:3, c("int", "drought.z")]
-  phi1Os <- phi1s[ ,c("beta.phi1", "b1.drought")]
-  lphi1O <- as.matrix(phi1O_X) %*% t(phi1Os)
-  phi1O <- exp(lphi1O) / (1 + exp(lphi1O))
-  # Adult female survival
-  phi2O_X <- phi2_X[1:3, c("int", "drought.z", "trend.z", "trend.z2")]
-  phi2Os <- phi2s_f[ ,c("beta.phi2", "b2.drought", "b2.trend", "b2.trend2")]
-  lphi2O <- as.matrix(phi2O_X) %*% t(phi2Os)
-  phi2O <- exp(lphi2O) / (1 + exp(lphi2O))
-  # Transition
-  psi12O <- as.matrix(samples_df$psi12.mn)
+# Comparing demographic rates and lambda at each plot
+#------------------------------------------------------------------------------#	  
+# For now, focusing comparisons/correlations for PDSI = long-term mean (-1.08)
   
-  lambdaO <- matrix(NA, nrow = nrow(phi2O), ncol = ncol(phi2O))
-  for(i in 1:nrow(phi2O)){ 
-    for (j in 1:ncol(phi2O)){
-      proj.mat <- matrix(c(phi1O[i, j] * (1 - psi12O[j]), 0.32,
-                           phi1O[i, j] * psi12O[j], phi2O[i, j]),
-                         nrow = 2,ncol = 2,byrow = TRUE)
-      lambdaO[i, j] <- eigen(proj.mat)$values[1]
-    }
-  }
-  
-  lambdasO <- data.frame(drought = drought3[1:3]) %>%
-    mutate(mn = apply(lambdaO, 1, mean),
-           q0.025 = apply(lambdaO, 1, quantile, 0.025),
-           q0.05 = apply(lambdaO, 1, quantile, 0.05),
-           q0.5 = apply(lambdaO, 1, quantile, 0.5),
-           q0.95 = apply(lambdaO, 1, quantile, 0.95),
-           q0.975 = apply(lambdaO, 1, quantile, 0.975),
-           probdecline = apply(lambdaO, 1, function(x) sum(x < 1) / length(x)))
+  ests_droughtmean <- ests_by_plot %>%
+    filter(round(drought) == -1)
 
+# 3-panel figure with plot-specific demographic rates vs lambda  
+  
+  barc <- "gray"
+  barw <- 0.3
+  
+  juvlambda <- ggplot(ests_droughtmean, aes(x = juv, y = lambda)) +
+    geom_errorbar(aes(xmin = juv_lcl, xmax = juv_ucl), 
+                  col = barc, linewidth = barw) +
+    geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
+                  col = barc, linewidth = barw) +
+    geom_point() +
+    labs(x = "Juvenile survival", y = "Rate of popuation change") +
+    theme_classic() +
+    theme(text = element_text(size = 9),
+          axis.text = element_text(size = 9))
+  adlambda <- ggplot(ests_droughtmean, aes(x = ad_fem, y = lambda)) +
+    geom_errorbar(aes(xmin = ad_fem_lcl, xmax = ad_fem_ucl), 
+                  col = barc, linewidth = barw) +
+    geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
+                  col = barc, linewidth = barw) +
+    geom_point() +
+    labs(x = "Adult female survival", y = "Rate of popuation change") +
+    scale_x_continuous(limits = c(0.89, 0.99), breaks = seq(0.9, 0.98, 0.04)) +
+    theme_classic() +
+    theme(text = element_text(size = 9),
+          axis.text = element_text(size = 9),
+          axis.title.y = element_blank(), 
+          axis.text.y = element_blank())
+  translambda <- ggplot(ests_droughtmean, aes(x = trans, y = lambda)) +
+    geom_errorbar(aes(xmin = trans_lcl, xmax = trans_ucl), 
+                  col = barc, linewidth = barw) +
+    geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
+                  col = barc, linewidth = barw) +
+    geom_point() +
+    labs(x = "Transition rate", y = "Rate of popuation change") +
+    theme_classic() +
+    theme(text = element_text(size = 9),
+          axis.text = element_text(size = 9),
+          axis.title.y = element_blank(), 
+          axis.text.y = element_blank())
+  demog_lambda <- plot_grid(juvlambda, adlambda, translambda, nrow = 1,
+                            rel_widths = c(1.23, 1, 1))
+  
+  # ggsave("output/demog_v_lambda.jpg",
+  #        demog_lambda,
+  #        device = "jpeg",
+  #        dpi = 600,
+  #        width = 6.5,
+  #        height = 3,
+  #        units = "in")
+  
 # Correlations among demographic parameter estimates
-  cor(plotests[, c("juv", "ad_fem", "ad_male", "trans")])
-  plot(plotests[, c("juv", "ad_fem", "ad_male", "trans")])
+  cor(ests_droughtmean[, c("juv", "ad_fem", "ad_male", "trans")])
+  plot(ests_droughtmean[, c("juv", "ad_fem", "ad_male", "trans")])
   
-# Correlations between lambda estimates (for neutral climate conditions) and 
-# demographic parameters
-  lam0 <- lambdas %>% filter(drought == 0)
-  
-  # Check
-  # all.equal(lam0$plot, plotests$plot[1:17])
-  
+# Correlations between vital rates and lambda
   # Adult survival (female)
-  plot(lam0$mn ~ plotests$ad_fem[1:17])
-  cor.test(lam0$mn, plotests$ad_fem[1:17])
-  # r = -0.08 (P = 0.75)
-
+  plot(lambda ~ ad_fem, data = ests_droughtmean)
+  cor.test(ests_droughtmean$lambda, ests_droughtmean$ad_fem)
+  # r = 0.05 (P = 0.84)
+  
   # Juvenile survival
-  plot(lam0$mn ~ plotests$juv[1:17])
-  cor.test(lam0$mn, plotests$juv[1:17])
-  # r = 0.89 (P < 0.001)
+  plot(lambda ~ juv, data = ests_droughtmean)
+  cor.test(ests_droughtmean$lambda, ests_droughtmean$juv)
+  # r = 0.88 (P < 0.001)
   
   # Transition rate
-  plot(lam0$mn ~ plotests$trans[1:17])
-  cor.test(lam0$mn, plotests$trans[1:17])
-  # r = 0.59 (P = 0.01), though one plot (WM) seems to have a lot of leverage
+  plot(lambda ~ trans, data = ests_droughtmean)
+  cor.test(ests_droughtmean$lambda, ests_droughtmean$trans)
+  # r = 0.53 (P = 0.03), though one plot (WM) seems to have a lot of leverage
   # with very high transition rate and lambda
-  cor.test(lam0$mn[c(1:15,17)], plotests$trans[c(1:15, 17)])
-  # r = 0.42 (P = 0.10)
-
-# Correlations between lambda values and latitude/longitude
-  lam0 <- lam0 %>%
-    left_join(plots[, c("plot", "lat", "long")], by = "plot")
-
-  cor.test(lam0$mn, lam0$lat)
-  # No correlation with latitude (r = -0.06, P = 0.82)
-  cor.test(lam0$mn, lam0$long)
-  # Very weak positive correlation with longitude (r = 0.31, P = 0.22)
+  cor.test(ests_droughtmean$lambda[c(1:15, 17)], 
+           ests_droughtmean$trans[c(1:15, 17)])
+  # r = 0.32 (P = 0.23)
   
+# Correlations between lambda values and latitude/longitude
+  ests_by_plot <- ests_by_plot %>%
+    left_join(plots[, c("plot", "lat", "long")], by = "plot")
+  
+  cor.test(ests_by_plot$lambda[round(ests_by_plot$drought) == -1], 
+           ests_by_plot$lat[round(ests_by_plot$drought) == -1])
+  # No correlation with latitude (r = -0.05, P = 0.86)
+  cor.test(ests_by_plot$lambda[round(ests_by_plot$drought) == -1], 
+           ests_by_plot$long[round(ests_by_plot$drought) == -1])
+  # Very weak positive correlation with longitude (r = 0.26, P = 0.32)
+  
+#------------------------------------------------------------------------------# 
+# Estimates of demographic rates, lambdas across populations
+#------------------------------------------------------------------------------#	
+# For adult survival, generating values for 2019-2020
+# For survival and transition rates, generating values for 4 levels of drought: 
+  # mean PDSI = -3, -1.08 (mean value across plots and years), 0, +3
+# Will assume city and meanprecip = mean (0, when standardized)
+# Will account for spatial random effects in all demographic parameters (CHECK THIS)
+# Will assume recruitment = 0.32 f/f/yr   
+
+# Set a seed, since we'll be generating random values of spatial random effects
+# for each iteration
+set.seed(123)
+
+# Juvenile survival
+  # Generate a random effect from normal distribution with iteration-specific SDs
+  phi1_e <- rnorm(nrow(samples_df), mean = 0, sd = samples_df$sigma.site.1)
+  phi1_e <- matrix(rep(phi1_e, 4), nrow = 4, byrow = TRUE)
+  # Calculate fixed effect of drought
+  phi1_samples <- samples_df %>% select(beta.phi1, b1.drought)
+  phi1_X <- data.frame(int = 1, drought.z = drought4.z)
+  phi1_fixed <- as.matrix(phi1_X) %*% t(phi1_samples)
+  # Combine fixed and random components
+  phi1_l <- phi1_fixed + phi1_e
+  # Put on probability scale
+  phi1_mat <- exp(phi1_l) / (1 + exp(phi1_l))
+
+# Adult male survival
+  # Generate a random effect from normal distribution with iteration-specific SDs
+  phi2_e <- rnorm(nrow(samples_df), mean = 0, sd = samples_df$sigma.site.2)
+  phi2_e <- matrix(rep(phi2_e, 4), nrow = 4, byrow = TRUE)
+  # Calculate fixed effect of drought
+  phi2_samples <- samples_df %>%
+    select(c(beta.phi2, b2.male, b2.drought, b2.trend, b2.trend2))
+  phi2m_X <- data.frame(int = 1, male = 1, drought.z = drought4.z,
+                        trend = tail(trend.z, 1), 
+                        trend2 = tail(trend.z, 1) * tail(trend.z, 1))
+  phi2m_fixed <- as.matrix(phi2m_X) %*% t(phi2_samples)
+  # Combine fixed and random components
+  phi2m_l <- phi2m_fixed + phi2_e
+  # Put on probability scale
+  phi2m_mat <- exp(phi2m_l) / (1 + exp(phi2m_l))
+  
+# Adult female survival
+  # Calculate fixed effect of drought
+  phi2f_X <- phi2m_X %>% mutate(male = 0)
+  phi2f_fixed <- as.matrix(phi2f_X) %*% t(phi2_samples)
+  # Combine fixed and random components
+  phi2f_l <- phi2f_fixed + phi2_e
+  # Put on probability scale
+  phi2f_mat <- exp(phi2f_l) / (1 + exp(phi2f_l))
+ 
+# Transition rate
+  # Generate a random effect from normal distribution with iteration-specific SDs
+  psi_e <- rnorm(nrow(samples_df), mean = 0, sd = samples_df$sigma.site.t)
+  psi_e <- matrix(rep(psi_e, 4), nrow = 4, byrow = TRUE)
+  # Calculate fixed effect of drought
+  psi_samples <- samples_df %>% select(gamma.psi)
+  psi_X <- data.frame(int = rep(1, 4))
+  psi_fixed <- as.matrix(psi_X) %*% t(psi_samples)
+  # Combine fixed and random components
+  psi_l <- psi_fixed + psi_e
+  # Put on probability scale
+  psi_mat <- exp(psi_l) / (1 + exp(psi_l)) 
+  
+# Calculate lambdas for each level of drought
+
+  lambda_overall <- matrix(NA, nrow = nrow(phi1_mat), ncol = ncol(phi1_mat))
+
+  for (i in 1:nrow(phi1_mat)) {
+    for (j in 1:ncol(phi1_mat)) {
+      
+      proj.mat <- matrix(c(phi1_mat[i, j] * (1 - psi_mat[i, j]), 0.32,
+                           phi1_mat[i, j] * psi_mat[i, j], phi2f_mat[i, j]),
+                         nrow = 2, ncol = 2, byrow = TRUE)
+      lambda_overall[i, j] <- eigen(proj.mat)$values[1]
+      
+    }
+  }
+
+# Generate figure with overlapping histograms for lambda at PDSI = -3, 0, 3
+  # Convert matrix to dataframe
+  lambdas_df <- data.frame(PDSI = rep(drought4, each = ncol(lambda_overall)),
+                           lambda = c(lambda_overall[1, ], lambda_overall[2, ],
+                                      lambda_overall[3, ], lambda_overall[4,])) %>%
+    mutate(PDSI = as.factor(PDSI))
+  
+  lambdas_df %>%
+    group_by(PDSI) %>%
+    summarize(mn = mean(lambda),
+              md = median(lambda),
+              min = min(lambda),
+              max = max(lambda),
+              sd = sd(lambda)) %>%
+    data.frame()
+  
+  lambdas_fig <- ggplot(filter(lambdas_df, PDSI %in% c(-3, 0, 3))) + 
+    geom_density(aes(x = lambda, group = PDSI, fill = PDSI), alpha = 0.25) +
+    geom_vline(xintercept = 1, linetype = 2, col = "gray40") +
+    labs(x = "Estimated rate of population change", y = "Density") +
+    theme_classic() +
+    theme(text = element_text(size = 8),
+          axis.text = element_text(size = 8),
+          legend.position = c(0.02, 0.98), 
+          legend.justification = c(0, 1))
+    
+  # ggsave("output/lambda_distributions.jpg",
+  #        lambdas_fig,
+  #        device = "jpeg",
+  #        dpi = 600,
+  #        width = 3,
+  #        height = 3,
+  #        units = "in")
+
+# Summarize everything:
+  ests_overall <- data.frame(drought = drought4) %>%
+    mutate(juv = apply(phi1_mat, 1, ctend),
+           juv_lcl = apply(phi1_mat, 1, quantile, qprobs[1]),
+           juv_ucl = apply(phi1_mat, 1, quantile, qprobs[2]),
+           ad_fem = apply(phi2f_mat, 1, ctend),
+           ad_fem_lcl = apply(phi2f_mat, 1, quantile, qprobs[1]),
+           ad_fem_ucl = apply(phi2f_mat, 1, quantile, qprobs[2]),
+           ad_male = apply(phi2m_mat, 1, ctend),
+           ad_male_lcl = apply(phi2m_mat, 1, quantile, qprobs[1]),
+           ad_male_ucl = apply(phi2m_mat, 1, quantile, qprobs[2]),
+           trans = apply(psi_mat, 1, ctend),
+           trans_lcl = apply(psi_mat, 1, quantile, qprobs[1]),
+           trans_ucl = apply(psi_mat, 1, quantile, qprobs[2]),
+           lambda = apply(lambda_overall, 1, ctend),
+           lambda_lcl = apply(lambda_overall, 1, quantile, qprobs[1]),
+           lambda_ucl = apply(lambda_overall, 1, quantile, qprobs[2]),
+           probdecline = apply(lambda_overall, 1, function(x) sum(x < 1) / length(x)))
+  
+# Write to file
+# write.csv(ests_overall, "output/statewide-estimates.csv", row.names = FALSE)
