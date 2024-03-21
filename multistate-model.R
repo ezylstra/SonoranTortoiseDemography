@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 20 March 2024
+# Last updated: 21 March 2024
 ################################################################################
 
 library(dplyr)
@@ -1293,8 +1293,54 @@ ests <- lam0 %>%
          lambda_ucl = q0.975) %>%
   left_join(filter(plotests, plot != "Overall"), by = "plot")
 
-# Pick up here.....
+barc <- "gray"
+barw <- 0.3
 
+juvlambda <- ggplot(ests, aes(x = juv, y = lambda)) +
+  geom_errorbar(aes(xmin = juv_lcl, xmax = juv_ucl), 
+                col = barc, linewidth = barw) +
+  geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
+                col = barc, linewidth = barw) +
+  geom_point() +
+  labs(x = "Juvenile survival", y = "Rate of popuation change") +
+  theme_classic() +
+  theme(text = element_text(size = 9),
+        axis.text = element_text(size = 9))
+adlambda <- ggplot(ests, aes(x = ad_fem, y = lambda)) +
+  geom_errorbar(aes(xmin = ad_fem_lcl, xmax = ad_fem_ucl), 
+                col = barc, linewidth = barw) +
+  geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
+                col = barc, linewidth = barw) +
+  geom_point() +
+  labs(x = "Adult female survival", y = "Rate of popuation change") +
+  scale_x_continuous(limits = c(0.89, 0.99), breaks = seq(0.9, 0.98, 0.04)) +
+  theme_classic() +
+  theme(text = element_text(size = 9),
+        axis.text = element_text(size = 9),
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank())
+translambda <- ggplot(ests, aes(x = trans, y = lambda)) +
+  geom_errorbar(aes(xmin = trans_lcl, xmax = trans_ucl), 
+                col = barc, linewidth = barw) +
+  geom_errorbar(aes(ymin = lambda_lcl, ymax = lambda_ucl), 
+                col = barc, linewidth = barw) +
+  geom_point() +
+  labs(x = "Transition rate", y = "Rate of popuation change") +
+  theme_classic() +
+  theme(text = element_text(size = 9),
+        axis.text = element_text(size = 9),
+        axis.title.y = element_blank(), 
+        axis.text.y = element_blank())
+demog_lambda <- plot_grid(juvlambda, adlambda, translambda, nrow = 1,
+                          rel_widths = c(1.23, 1, 1))
+
+# ggsave("output/demog_v_lambda.jpg",
+#        demog_lambda,
+#        device = "jpeg",
+#        dpi = 600,
+#        width = 6.5,
+#        height = 3,
+#        units = "in")
 
 # Correlations among demographic parameter estimates
 cor(ests[, c("juv", "ad_fem", "ad_male", "trans")])
@@ -1306,28 +1352,27 @@ cor.test(lam0$mn, plotests$ad_fem[1:17])
 # r = -0.08 (P = 0.75)
 
 # Juvenile survival
-plot(lam0$mn ~ plotests$juv[1:17])
-cor.test(lam0$mn, plotests$juv[1:17])
+plot(lambda ~ juv, data = ests)
+cor.test(ests$lambda, ests$juv)
 # r = 0.89 (P < 0.001)
 
 # Transition rate
-plot(lam0$mn ~ plotests$trans[1:17])
-cor.test(lam0$mn, plotests$trans[1:17])
+plot(lambda ~ trans, data = ests)
+cor.test(ests$lambda, ests$trans)
 # r = 0.59 (P = 0.01), though one plot (WM) seems to have a lot of leverage
 # with very high transition rate and lambda
-cor.test(lam0$mn[c(1:15,17)], plotests$trans[c(1:15, 17)])
+cor.test(ests$lambda[c(1:15, 17)], ests$trans[c(1:15, 17)])
 # r = 0.42 (P = 0.10)
 
 # Correlations between lambda values and latitude/longitude
-lam0 <- lam0 %>%
+ests <- ests %>%
   left_join(plots[, c("plot", "lat", "long")], by = "plot")
 
-cor.test(lam0$mn, lam0$lat)
+cor.test(ests$lambda, ests$lat)
 # No correlation with latitude (r = -0.06, P = 0.82)
-cor.test(lam0$mn, lam0$long)
+cor.test(ests$lambda, ests$long)
 # Very weak positive correlation with longitude (r = 0.31, P = 0.22)
 
-  
 #------------------------------------------------------------------------------# 
 #
 #------------------------------------------------------------------------------#	    
