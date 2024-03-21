@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 19 March 2024
+# Last updated: 20 March 2024
 ################################################################################
 
 library(dplyr)
@@ -118,7 +118,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     mutate(stage = ifelse(mcl < 180, 1, 2)) %>%
     data.frame()
 
-# Identify how many unique tortoises were detected at least once during once 
+# Identify how many unique tortoises were detected at least once during
 # each year a plot was surveyed
   plot.yr <- cr.yr %>%
     group_by(plot, yr) %>%
@@ -184,22 +184,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     #   data.frame()
     # all.equal(plot.yr$n.torts, plot.yr2$n.torts)
     # rm(chcheck, plot.yr2)
-  
-  # First and last known state of each tortoise
-  firstlast <- ch[, 1:3]
-  firstlast$state1 <- unlist(apply(ch.mat, 1, 
-                                   function(x) head(x[!is.na(x) & x < 3], 1)))
-  firstlast$state2 <- unlist(apply(ch.mat, 1, 
-                                   function(x) tail(x[!is.na(x) & x < 3], 1)))
-  # Check that there are no backward transitions (ad -> juv)
-  count(firstlast, state1, state2)
-  # Proportion of individuals first captured as juvenile (n = 569)
-  sum(firstlast$state1 == 1)/nrow(firstlast)
-  # Proportion of individuals first captured as adult (n = 1466)
-  sum(firstlast$state1 == 2)/nrow(firstlast)
-  # Proportion of juveniles that were subsequently captured as adults (n = 91)
-  sum(firstlast$state1 == 1 & firstlast$state2 == 2)/sum(firstlast$state1 == 1)
-  
+
 # Create vector indicating the first year each tortoise was caught:
   first <- rep(NA, nrow(ch.mat))
   for (i in 1:nrow(ch.mat)) {
@@ -656,7 +641,9 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
            greater0 = apply(samples_mat[, params], 2, function(x) sum(x > 0)/length(x)),
            f = if_else(greater0 < 0.5, 1 - greater0, greater0)) %>%
     select(-greater0)
-  # write.csv(param_table, "output/parameter_estimates.csv", row.names = FALSE)
+
+# Write to file  
+# write.csv(param_table, "output/parameter_estimates.csv", row.names = FALSE)
   
 # Calculate derived parameters
   samples_df <- data.frame(samples_mat) %>%
@@ -667,6 +654,70 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
            phi2.m = exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male)),
            p2.f = exp(alpha.p2) / (1 + exp(alpha.p2)),
            p2.m = exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male)))
+
+#------------------------------------------------------------------------------# 
+# Table: plot characteristics, capture data
+#------------------------------------------------------------------------------#  
+
+# Identify first and last known state of each tortoise 
+# (state1 = first; state2 = last)
+  firstlast <- ch[, 1:3]
+  firstlast$state1 <- unlist(apply(ch.mat, 1, 
+                                   function(x) head(x[!is.na(x) & x < 3], 1)))
+  firstlast$state2 <- unlist(apply(ch.mat, 1, 
+                                   function(x) tail(x[!is.na(x) & x < 3], 1)))
+  # Check that there are no backward transitions (ad -> juv)
+  count(firstlast, state1, state2)
+  
+# Create new sex column with all tortoises that were only captured as juveniles
+# (ie, never captured as an adult) listed as "J"
+  firstlast <- firstlast %>%
+    mutate(sex_new = if_else(state2 == 1, "J",
+                             if_else(sex == 1, "F",
+                                     if_else(sex == 2, "M", "U")))) %>%
+    select(-sex) %>%
+    rename(sex = sex_new)
+  
+# Calculate for each plot:
+  # n_torts = total number of marked tortoises
+  # n_juv = total number of marked tortoises first captured as juveniles
+  # prop_juv = proportion of marked tortoises first captured as juveniles
+  # n_transition = number of marked tortoises first captured as juveniles that
+    # were subsequently captured as an adult
+  # prop_transition = proportion of juveniles captured as adults
+  # n_adults = number of tortoises ever captured as an adult
+  # prop_female = proportion of adults that were female
+  
+caps_byplot <- firstlast %>%
+  group_by(plot) %>%
+  summarize(n_torts = length(tort),
+            n_juv = sum(state1 == 1),
+            prop_juv = n_juv / n_torts,
+            n_transition = sum(state1 == 1 & state2 == 2),
+            prop_transition = n_transition / n_juv,
+            n_adults = sum(sex != "J"),
+            prop_female = sum(sex == "F") / n_adults) %>%
+  data.frame()
+
+plot_summaries <- plots %>%
+  select(-plot.index) %>%
+  left_join(caps_byplot, by = "plot") %>%
+  arrange(plot)
+to_add <- data.frame(plot = "Mean/Total", climate = NA, 
+                     city.km = mean(plot_summaries$city.km),
+                     pptnorms.mm = mean(plot_summaries$pptnorms.mm),
+                     lat = NA, long = NA, 
+                     n_torts = sum(plot_summaries$n_torts),
+                     n_juv = sum(plot_summaries$n_juv),
+                     prop_juv = sum(firstlast$state1 == 1) / nrow(firstlast),
+                     n_transition = sum(plot_summaries$n_transition),
+                     prop_transition = sum(firstlast$state1 == 1 & firstlast$state2 == 2) / sum(firstlast$state1 == 1),
+                     n_adults = sum(plot_summaries$n_adults),
+                     prop_female = sum(firstlast$sex == "F") / sum(firstlast$sex != "J"))
+plot_summaries <- rbind(plot_summaries, to_add)
+
+# Write to file
+# write.csv(plot_summaries, "output/plot_summaries.csv", row.names = FALSE)
 
 #------------------------------------------------------------------------------# 
 # Settings for figures
@@ -715,7 +766,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
            sex = ifelse(male == 1, "M", "F"),
            regime = ifelse(mnprecip == mnprecip3.z[1], "Arid",
                               ifelse(mnprecip == mnprecip3.z[2], 
-                                     "Semiarid", "Mesic")),
+                                     "Arid/Semiarid", "Semiarid")),
            group = paste(regime, sex, sep = ":"),
            pdsi = drought * pdsi.24.sd + pdsi.24.mn)
 
@@ -723,13 +774,13 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   groups <- data.frame(unique(adsurv_df[, c("group", "sex", "regime")])) %>%
     mutate(col = ifelse(sex == "F", "salmon3", "steelblue4"),
            linetype = ifelse(regime == "Arid", 1,
-                             ifelse(regime == "Semiarid", 3, 2)))
+                             ifelse(regime == "Semiarid", 2, 3)))
   linewidth <- 0.3
   
   # Just using estimates for M/F at dry and wet sites
-  adsurv_df4 <- filter(adsurv_df, regime != "Semiarid") %>%
+  adsurv_df4 <- filter(adsurv_df, regime != "Arid/Semiarid") %>%
     mutate(group = as.factor(group))
-  groups4 <- filter(groups, regime != "Semiarid") %>%
+  groups4 <- filter(groups, regime != "Arid/Semiarid") %>%
     mutate(group = as.factor(group)) %>%
     arrange(group)
 
@@ -742,7 +793,8 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     scale_color_manual(values = groups4$col) +
     scale_linetype_manual(values = groups4$linetype) +
     theme_classic() +
-    theme(text = element_text(size = 8),
+    theme(text = element_text(size = 9),
+          axis.text = element_text(size = 9),
           legend.title = element_blank(),
           legend.position = c(1, 0.02),
           legend.justification = c("right", "bottom"),
@@ -753,7 +805,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   #        device = "jpeg",
   #        dpi = 600,
   #        width = 3,
-  #        height = 3, 
+  #        height = 3,
   #        units = "in")
   # Can easily change device to pdf (and remove dpi argument)
 
@@ -778,20 +830,20 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
            ucl = apply(pred1, 1, quantile, probs = qprobs[2]),
            regime = ifelse(mnprecip == mnprecip3.z[1], "Arid",
                            ifelse(mnprecip == mnprecip3.z[2], 
-                                  "Semiarid", "Mesic")),
+                                  "Arid/Semiarid", "Semiarid")),
            pdsi = drought * pdsi.24.sd + pdsi.24.mn)  
   
   # Set colors, linetypes for figure (types: 1 = solid, 2 = dashed, 3 = dotted) 
   groups_juv <- data.frame(regime = unique(juvsurv_df$regime)) %>%
     mutate(col = "black",
            linetype = ifelse(regime == "Arid", 1,
-                             ifelse(regime == "Semiarid", 3, 2)))
+                             ifelse(regime == "Semiarid", 2, 3)))
   linewidth <- 0.3
   
   # Just using estimates  at dry and wet sites
-  juvsurv_df2 <- filter(juvsurv_df, regime != "Semiarid") %>%
+  juvsurv_df2 <- filter(juvsurv_df, regime != "Arid/Semiarid") %>%
     mutate(regime = as.factor(regime))
-  groups_juv2 <- filter(groups_juv, regime != "Semiarid") %>%
+  groups_juv2 <- filter(groups_juv, regime != "Arid/Semiarid") %>%
     mutate(regime = as.factor(regime)) %>%
     arrange(regime)
   
@@ -806,7 +858,8 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     scale_color_manual(values = groups_juv2$col) +
     scale_linetype_manual(values = groups_juv2$linetype) +
     theme_classic() +
-    theme(text = element_text(size = 8),
+    theme(text = element_text(size = 9),
+          axis.text = element_text(size = 9),
           legend.title = element_blank(),
           legend.position = c(1, 0.02),
           legend.justification = c("right", "bottom"),
@@ -833,7 +886,8 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     scale_color_manual(values = groups_juv2$col) +
     scale_linetype_manual(values = groups_juv2$linetype) +
     theme_classic() +
-    theme(text = element_text(size = 8),
+    theme(text = element_text(size = 9),
+          axis.text = element_text(size = 9),
           legend.title = element_blank(),
           legend.position = c(1, 0.02),
           legend.justification = c("right", "bottom"),
@@ -893,7 +947,8 @@ trend_plot <- ggplot(data = adtrend_df,
   scale_fill_manual(values = groups_tr$fill) +
   scale_y_continuous(limits = c(0.75, 1), breaks = seq(0.75, 1, by = 0.05)) +
   theme_classic() +
-  theme(text = element_text(size = 8),
+  theme(text = element_text(size = 9),
+        axis.text = element_text(size = 9),
         legend.title = element_blank(),
         legend.position = c(1, 0.02),
         legend.justification = c("right", "bottom"),
@@ -1000,15 +1055,16 @@ pdsi_df <- pdsi_df %>%
 pdsi24t$div <- as.factor(pdsi24t$div)
 divs <- data.frame(div = sort(unique(pdsi24t$div))) %>%
   mutate(col = c('mediumpurple4','steelblue4','darkseagreen4',
-                 'goldenrod4','salmon4'))
+                 'goldenrod4','salmon4'),
+         shape = 21:25)
 linetype <- 1
 linewidth <- 0.3
 
 pdsi_plot <- ggplot() +
   geom_line(data = pdsi24t, aes(x = yr, y = pdsi.24, group = div, col = div),
             linewidth = linewidth, alpha = 0.6, show.legend = NA) +
-  geom_point(data = pdsi24t, aes(x = yr, y = pdsi.24, col = div, fill = div), 
-             shape = 21, size = 1, alpha = 0.6) +
+  geom_point(data = pdsi24t, aes(x = yr, y = pdsi.24, col = div, fill = div, shape = div), 
+             size = 1.2, alpha = 0.6) +
   geom_line(data = pdsi_df, aes(x = yr, y = central), show.legend = NA) +
   geom_ribbon(data = pdsi_df, aes(x = yr, ymin = lcl, ymax = ucl), alpha = 0.2,
               show.legend = NA) +
@@ -1017,8 +1073,10 @@ pdsi_plot <- ggplot() +
   scale_y_continuous(limits = c(-4, 4.7), breaks = seq(-4, 4, by = 2)) +
   scale_color_manual(values = divs$col, name = "Division") +
   scale_fill_manual(values = divs$col, name = "Division") +
+  scale_shape_manual(values = divs$shape, name = "Division") +
   theme_classic() +
-  theme(text = element_text(size = 8),
+  theme(text = element_text(size = 9),
+        axis.text = element_text(size = 9),
         legend.position = c(0.92, 1),
         legend.justification = c("right", "top"),
         legend.key.height = unit(0.12, "in"))
@@ -1100,6 +1158,8 @@ pdsi_plot <- ggplot() +
            trans_ucl = apply(predpsi, 1, quantile, qprobs[2]))
 
 # Add overall estimates to bottom of table
+# TODO: figure out whether I need to incorporate spatial random effects when
+# calculating mean demographic rate across all plots
 plotests_add <- data.frame(plot = "Overall",
                            juv = ctend(samples_df$phi1.mn),
                            juv_lcl = quantile(samples_df$phi1.mn, qprobs[1]),
@@ -1113,7 +1173,7 @@ plotests_add <- data.frame(plot = "Overall",
                            trans = ctend(samples_df$psi12.mn),
                            trans_lcl = quantile(samples_df$psi12.mn, qprobs[1]),
                            trans_ucl = quantile(samples_df$psi12.mn, qprobs[2]),
-                           row.names = NULL) 
+                           row.names = NULL)
 plotests <- rbind(plotests, plotests_add)
 plotests
 
@@ -1165,7 +1225,7 @@ plotests
   lphi1RE <- lphi1 + REs1
   phi1 <- exp(lphi1RE) / (1+exp(lphi1RE))
   
-  # Adult FEMALE survival (need to add in random site effects)
+  # Adult FEMALE survival
   phi2s_f <- samples_df %>%
     select(beta.phi2, b2.city, b2.mnprecip, b2.drought, 
            b2.int, b2.trend, b2.trend2) %>%
@@ -1221,7 +1281,60 @@ plotests
            q0.975 = apply(lambda, 1, quantile, 0.975),
            probdecline = apply(lambda, 1, function(x) sum(x < 1) / length(x)))
   
+#------------------------------------------------------------------------------# 
+# Comparing demographic rates and lambda at each plot (under neutral climate)
+#------------------------------------------------------------------------------#	  
+
+lam0 <- lambdas %>% filter(drought == 0) 
+ests <- lam0 %>%
+  select(plot, mn, q0.025, q0.975) %>%
+  rename(lambda = mn,
+         lambda_lcl = q0.025,
+         lambda_ucl = q0.975) %>%
+  left_join(filter(plotests, plot != "Overall"), by = "plot")
+
+# Pick up here.....
+
+
+# Correlations among demographic parameter estimates
+cor(ests[, c("juv", "ad_fem", "ad_male", "trans")])
+plot(ests[, c("juv", "ad_fem", "ad_male", "trans")])
+
+# Adult survival (female)
+plot(lam0$mn ~ plotests$ad_fem[1:17])
+cor.test(lam0$mn, plotests$ad_fem[1:17])
+# r = -0.08 (P = 0.75)
+
+# Juvenile survival
+plot(lam0$mn ~ plotests$juv[1:17])
+cor.test(lam0$mn, plotests$juv[1:17])
+# r = 0.89 (P < 0.001)
+
+# Transition rate
+plot(lam0$mn ~ plotests$trans[1:17])
+cor.test(lam0$mn, plotests$trans[1:17])
+# r = 0.59 (P = 0.01), though one plot (WM) seems to have a lot of leverage
+# with very high transition rate and lambda
+cor.test(lam0$mn[c(1:15,17)], plotests$trans[c(1:15, 17)])
+# r = 0.42 (P = 0.10)
+
+# Correlations between lambda values and latitude/longitude
+lam0 <- lam0 %>%
+  left_join(plots[, c("plot", "lat", "long")], by = "plot")
+
+cor.test(lam0$mn, lam0$lat)
+# No correlation with latitude (r = -0.06, P = 0.82)
+cor.test(lam0$mn, lam0$long)
+# Very weak positive correlation with longitude (r = 0.31, P = 0.22)
+
+  
+#------------------------------------------------------------------------------# 
+#
+#------------------------------------------------------------------------------#	    
+
 # Calculate overall lambda values (city, mnprecip = 0):
+# TODO: Same as above, figure out whether it would be good to incorporate random
+# effects...
   # Juvenile survival
   phi1O_X <- phi1_X[1:3, c("int", "drought.z")]
   phi1Os <- phi1s[ ,c("beta.phi1", "b1.drought")]
