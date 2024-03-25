@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 21 March 2024
+# Last updated: 25 March 2024
 ################################################################################
 
 library(dplyr)
@@ -644,7 +644,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     select(-greater0)
 
 # Write to file  
-# write.csv(param_table, "output/parameter_estimates.csv", row.names = FALSE)
+# write.csv(param_table, "output/parameter-estimates.csv", row.names = FALSE)
 
 #------------------------------------------------------------------------------# 
 # Table: plot characteristics, capture data
@@ -708,7 +708,7 @@ to_add <- data.frame(plot = "Mean/Total", climate = NA,
 plot_summaries <- rbind(plot_summaries, to_add)
 
 # Write to file
-# write.csv(plot_summaries, "output/plot_summaries.csv", row.names = FALSE)
+# write.csv(plot_summaries, "output/plot-summaries.csv", row.names = FALSE)
 
 #------------------------------------------------------------------------------# 
 # Settings for figures
@@ -1269,7 +1269,7 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   demog_lambda <- plot_grid(juvlambda, adlambda, translambda, nrow = 1,
                             rel_widths = c(1.23, 1, 1))
   
-  # ggsave("output/demog_v_lambda.jpg",
+  # ggsave("output/demog-v-lambda.jpg",
   #        demog_lambda,
   #        device = "jpeg",
   #        dpi = 600,
@@ -1313,13 +1313,124 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   # Very weak positive correlation with longitude (r = 0.26, P = 0.32)
   
 #------------------------------------------------------------------------------# 
-# Estimates of demographic rates, lambdas across populations
+# Estimates of mean demographic, detection rates across sampled populations
+#------------------------------------------------------------------------------#	
+# For adult survival, generating values for 2019-2020
+# For survival and transition rates, generating values at mean PDSI = -1.08 
+  # (mean value across plots and years)
+  
+# Note: we could do this 2 ways: 1) use the intercept from the linear model for
+# each rate, or, 2) calculate the rate for each plot (city and mean precip = 
+# observed values, drought.z = 0, including random effect), average across plots 
+# for each iteration, and then summarize the resulting distribution. 
+
+# Option 1 would reflect a hypothetical plot that was at the mean distance from 
+# a city and had mean annual precipitation.
+# Option 2 would reflect the mean across sampled populations.  
+# Going with option 2.
+
+# Option 1: use intercept from model for each rate
+  # samples_df <- samples_df %>%
+  #     mutate(phi1.mn = exp(beta.phi1) / (1 + exp(beta.phi1)),
+  #            phi2.f = exp(beta.phi2) / (1 + exp(beta.phi2)),
+  #            phi2.m = exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male)),
+  #            psi12.mn = exp(gamma.psi) / (1 + exp(gamma.psi)),
+  #            p1.mn = exp(alpha.p1) / (1 + exp(alpha.p1)),
+  #            p2.f = exp(alpha.p2) / (1 + exp(alpha.p2)),
+  #            p2.m = exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male)))
+  # samples_means_int <- samples_df %>%
+  #   select(phi1.mn, phi2.f, phi2.m, psi12.mn, p1.mn, p2.f, p2.m)
+  # rate_means_int <- data.frame(mean = apply(samples_means_int, 2, mean),
+  #                              median = apply(samples_means_int, 2, median),
+  #                              lcl = apply(samples_means_int, 2, quantile, qprobs[1]),
+  #                              ucl = apply(samples_means_int, 2, quantile, qprobs[2]))
+  # rate_means_int$param <- rownames(rate_means_int)
+  # rate_means_int <- rate_means_int %>%
+  #   relocate(param, .before = mean)
+  # row.names(rate_means_int) <- NULL
+  # rate_means_int
+
+# Option 2: calculate rate for each plot, average across plots for each 
+# iteration, then summarize distribution
+  # Grab samples for each demographic rate & plot, with PDSI = long-term mean (-1)
+  phi1_mat_0 <- phi1_mat[18:34, ]
+  phi2m_mat_0 <- phi2m_mat[18:34, ]
+  phi2f_mat_0 <- phi2f_mat[18:34, ]
+  psi_mat_0 <- psi_mat
+  # For each iteration, average demographic rates across plots
+  phi1_0 <- apply(phi1_mat_0, 2, mean)
+  phi2m_0 <- apply(phi2m_mat_0, 2, mean)
+  phi2f_0 <- apply(phi2f_mat_0, 2, mean)
+  psi_0 <- apply(psi_mat, 2, mean)
+  
+  # Generate plot-specific detection probs for juveniles, with effort = mean
+  p1_samples <- samples_df %>%
+    select(alpha.p1, a1.precip)
+  p1_X <- data.frame(intercept = 1,
+                     mnprecip = precip.norm)
+  p1_plots_l <- as.matrix(p1_X) %*% t(p1_samples)
+  p1_plots <- exp(p1_plots_l) / (1 + exp(p1_plots_l))
+  p1 <- apply(p1_plots, 2, mean)
+  
+  # Generate plot-specific detection probs for adult males, with effort = mean
+  p2_samples <- samples_df %>%
+    select(alpha.p2, a2.male, a2.precip)
+  p2_X <- data.frame(intercept = 1,
+                     male = 1,
+                     mnprecip = precip.norm)
+  p2m_plots_l <- as.matrix(p2_X) %*% t(p2_samples)
+  p2m_plots <- exp(p2m_plots_l) / (1 + exp(p2m_plots_l))
+  p2m <- apply(p2m_plots, 2, mean)
+  
+  # Generate plot-specific detection probs for adult females, with effort = mean
+  p2_samples <- samples_df %>%
+    select(alpha.p2, a2.male, a2.precip)
+  p2_X <- p2_X %>% mutate(male = 0)
+  p2f_plots_l <- as.matrix(p2_X) %*% t(p2_samples)
+  p2f_plots <- exp(p2f_plots_l) / (1 + exp(p2f_plots_l))
+  p2f <- apply(p2f_plots, 2, mean)
+  
+  samples_means <- cbind(phi1_0, phi2f_0, phi2m_0, psi_0, p1, p2f, p2m)
+  
+  rate_means <- data.frame(param = c("phi1.mn", "phi2.f", "phi2.m", 
+                                     "psi12.mn", "p1.mn", "p2.f", "p2.m"),
+                           mean = apply(samples_means, 2, mean),
+                           median = apply(samples_means, 2, median),
+                           lcl = apply(samples_means, 2, quantile, qprobs[1]),
+                           ucl = apply(samples_means, 2, quantile, qprobs[2]))
+  row.names(rate_means) <- NULL
+  rate_means
+
+# Calculate mean lambda (with mean PDSI) across sampled populations
+# (assuming recruitment = 0.32 f/f/yr) 
+
+  lambda_0 <- rep(NA, length = length(phi1_0))
+  
+  for (i in 1:length(phi1_0)) {
+      proj.mat <- matrix(c(phi1_0[i] * (1 - psi_0[i]), 0.32,
+                           phi1_0[i] * psi_0[i], phi2f_0[i]),
+                         nrow = 2, ncol = 2, byrow = TRUE)
+      lambda_0[i] <- eigen(proj.mat)$values[1]
+  }
+  
+  rate_means_add <- data.frame(param = "lambda",
+                               mean = mean(lambda_0),
+                               median = median(lambda_0),
+                               lcl = quantile(lambda_0, qprobs[1]),
+                               ucl = quantile(lambda_0, qprobs[2]))
+  rate_means <- rbind(rate_means, rate_means_add)
+  
+# Write to file
+# write.csv(rate_means, "output/rate-means.csv", row.names = FALSE)
+
+#------------------------------------------------------------------------------# 
+# Estimates of demographic rates, lambdas for any population
 #------------------------------------------------------------------------------#	
 # For adult survival, generating values for 2019-2020
 # For survival and transition rates, generating values for 4 levels of drought: 
   # mean PDSI = -3, -1.08 (mean value across plots and years), 0, +3
 # Will assume city and meanprecip = mean (0, when standardized)
-# Will account for spatial random effects in all demographic parameters (CHECK THIS)
+# Will account for spatial random effects in all demographic parameters
 # Will assume recruitment = 0.32 f/f/yr   
 
 # Set a seed, since we'll be generating random values of spatial random effects
@@ -1418,7 +1529,7 @@ set.seed(123)
           legend.position = c(0.02, 0.98), 
           legend.justification = c(0, 1))
     
-  # ggsave("output/lambda_distributions.jpg",
+  # ggsave("output/lambda-distributions.jpg",
   #        lambdas_fig,
   #        device = "jpeg",
   #        dpi = 600,
