@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 25 March 2024
+# Last updated: 26 March 2024
 ################################################################################
 
 library(dplyr)
@@ -584,11 +584,11 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   # Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
 
 # MCMC settings
-  n.chains <- 3
-  n.iter <- 30000
-  n.burn <- 5000
-  n.thin <- 15
-  ni.tot <- n.iter + n.burn
+  # n.chains <- 3
+  # n.iter <- 30000
+  # n.burn <- 5000
+  # n.thin <- 15
+  # ni.tot <- n.iter + n.burn
     
 # Run the MCMC and extract the samples (~ 13 hrs)
   # samples <- runMCMC(
@@ -768,7 +768,7 @@ plot_summaries <- rbind(plot_summaries, to_add)
                              ifelse(regime == "Semiarid", 2, 3)))
   linewidth <- 0.3
   
-  # Just using estimates for M/F at dry and wet sites
+  # Just using estimates for M/F at dries and wettest sites
   adsurv_df4 <- filter(adsurv_df, regime != "Arid/Semiarid") %>%
     mutate(group = as.factor(group))
   groups4 <- filter(groups, regime != "Arid/Semiarid") %>%
@@ -831,7 +831,7 @@ plot_summaries <- rbind(plot_summaries, to_add)
                              ifelse(regime == "Semiarid", 2, 3)))
   linewidth <- 0.3
   
-  # Just using estimates  at dry and wet sites
+  # Just using estimates  at driest and wettest sites
   juvsurv_df2 <- filter(juvsurv_df, regime != "Arid/Semiarid") %>%
     mutate(regime = as.factor(regime))
   groups_juv2 <- filter(groups_juv, regime != "Arid/Semiarid") %>%
@@ -1085,10 +1085,10 @@ pdsi_plot <- ggplot() +
 # Plot-specific estimates of demographic rates, lambdas
 #------------------------------------------------------------------------------#
 # For adult survival, generating values for 2019-2020
-# For survival and transition rates, generating values for 4 levels of drought: 
+# For survival, generating values for 4 levels of drought: 
   # mean PDSI = -3, -1.08 (mean value across plots and years), 0, +3
 # Will account for site-level random effects in all demographic parameters
-# Will assume recruitment = 0.32 f/f/yr 
+# For lambda, will assume recruitment = 0.32 f/f/yr 
 
 drought4 <- c(-3, pdsi.24.mn, 0, 3)
 drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
@@ -1307,17 +1307,16 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   
   cor.test(ests_by_plot$lambda[round(ests_by_plot$drought) == -1], 
            ests_by_plot$lat[round(ests_by_plot$drought) == -1])
-  # No correlation with latitude (r = -0.05, P = 0.86)
+  # r = -0.05 (P = 0.86)
   cor.test(ests_by_plot$lambda[round(ests_by_plot$drought) == -1], 
            ests_by_plot$long[round(ests_by_plot$drought) == -1])
-  # Very weak positive correlation with longitude (r = 0.26, P = 0.32)
+  # r = 0.26 (P = 0.32)
   
 #------------------------------------------------------------------------------# 
 # Estimates of mean demographic, detection rates across sampled populations
 #------------------------------------------------------------------------------#	
 # For adult survival, generating values for 2019-2020
-# For survival and transition rates, generating values at mean PDSI = -1.08 
-  # (mean value across plots and years)
+# For survival, generating values at PDSI = -1.08 (mean across plots and years)
   
 # Note: we could do this 2 ways: 1) use the intercept from the linear model for
 # each rate, or, 2) calculate the rate for each plot (city and mean precip = 
@@ -1327,7 +1326,7 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
 # Option 1 would reflect a hypothetical plot that was at the mean distance from 
 # a city and had mean annual precipitation.
 # Option 2 would reflect the mean across sampled populations.  
-# Going with option 2.
+# Going with option 2 (commented out approach using option 1 below)
 
 # Option 1: use intercept from model for each rate
   # samples_df <- samples_df %>%
@@ -1424,10 +1423,10 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
 # write.csv(rate_means, "output/rate-means.csv", row.names = FALSE)
 
 #------------------------------------------------------------------------------# 
-# Estimates of demographic rates, lambdas for any population
+# Projected estimates of lambda under a range of drought conditions
 #------------------------------------------------------------------------------#	
 # For adult survival, generating values for 2019-2020
-# For survival and transition rates, generating values for 4 levels of drought: 
+# For survival, generating values for 4 levels of drought: 
   # mean PDSI = -3, -1.08 (mean value across plots and years), 0, +3
 # Will assume city and meanprecip = mean (0, when standardized)
 # Will account for spatial random effects in all demographic parameters
@@ -1557,4 +1556,4 @@ set.seed(123)
            probdecline = apply(lambda_overall, 1, function(x) sum(x < 1) / length(x)))
   
 # Write to file
-# write.csv(ests_overall, "output/statewide-estimates.csv", row.names = FALSE)
+# write.csv(ests_overall, "output/statewide-projections.csv", row.names = FALSE)
