@@ -14,6 +14,7 @@ library(nimble)
 library(MCMCvis)
 library(ggplot2)
 library(cowplot)
+library(popbio)
 
 rm(list=ls())
 
@@ -39,6 +40,9 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     surveys$interval[i] <- ifelse(surveys$code[i] != surveys$code[i-1], NA,
                                   surveys$yr[i] - surveys$yr[i-1])
   }  
+  
+  # Summarizing survey intervals
+  summary(surveys$interval)
 
 # Identify years when no surveys were done
   missingyrs <- setdiff(1987:2020, sort(unique(surveys$yr)))
@@ -81,6 +85,9 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
               last.surv = max(yr),
               .groups = "keep") %>%
     data.frame()
+  
+  # Average number of surveys per plot
+  summary(surv.p$n.surveys)
 
 # Summarize survey effort by year
   surv.y <- surveys %>%
@@ -96,6 +103,15 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
     # Identify two "periods" (1987-2008, 2009-2020)
     mutate(period = ifelse(yr %in% 1987:2008, 1, 2)) %>%
     data.frame()
+  
+  # Average number of plots per year
+  summary(surv.y$n.plots)
+  # Average number of plots per year, 1987-2008
+  summary(surv.y$n.plots[surv.y$yr %in% 1987:2008])
+  # Total number of plots surveyed between 2009-2004
+  sum(surv.y$n.plots[surv.y$yr %in% 2009:2014])
+  # Average number of plots per year, 2015-2020
+  summary(surv.y$n.plots[surv.y$yr %in% 2015:2020])
 
 #------------------------------------------------------------------------------# 
 # Create capture histories for each tortoise
@@ -255,6 +271,17 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   
   # Convert to matrix
   pdsi.24.mat <- as.matrix(pdsi.24[, -1])
+  
+  # Summarize how drought conditions at each plot in 1996-2019
+  drought19962019 <- pdsi.plot %>%
+    filter(yr %in% 1996:2019) %>%
+    group_by(plot) %>%
+    summarize(pdsi.24_mn = mean(pdsi.24),
+              pdsi.24_min = min(pdsi.24),
+              pdsi.24_max = max(pdsi.24),
+              yrs_neg = sum(pdsi.24 < 0)) %>%
+    data.frame()
+  drought19962019
 
 # Format site*year covariate: precipitation	
   # Calculate cumulative precipitation (mm) at each plot from Aug-Jul
@@ -1171,9 +1198,12 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   psi_mat <- exp(psi_l) / (1 + exp(psi_l))
   
 # Calculate lambdas for each plot, level of drought
-  # Will create a list with 4 lambda matrices, one for each level of drought
   
+  # Will create a list with 4 lambda matrices, one for each level of drought
   lambda_plots <- list() 
+  # Will also extract elasticity values for adult female survival
+  fem_surv_elas <- matrix(NA, nrow = 4, ncol = ncol(psi_mat))
+  
   for (d in 1:4) {
     
     lambda_plots[[d]] <- matrix(NA, nrow = nrow(psi_mat), ncol = ncol(psi_mat))
@@ -1189,12 +1219,13 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
                              phi1[i, j] * psi_mat[i, j], phi2[i, j]),
                            nrow = 2, ncol = 2, byrow = TRUE)
         lambda_plots[[d]][i, j] <- eigen(proj.mat)$values[1]
+        fem_surv_elas[d, j] <- elasticity(proj.mat)[2, 2]
         
       }
     }
   }  
   
-# Summarize everything:
+# Summarize estimates:
   lambda_plots <- do.call(rbind, lambda_plots)
   ests_by_plot <- data.frame(plot = rep(plots$plot, 4),
                              drought = rep(drought4, each = nrow(plots))) %>%
@@ -1217,6 +1248,10 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   
 # Write to file
 # write.csv(ests_by_plot, "output/plot-level-estimates.csv", row.names = FALSE)
+
+# Summarize elasticity values for adult female survival (at PDSI = -1.08)
+  summary(fem_surv_elas[2,]) # mean = 0.80
+  quantile(fem_surv_elas[2,], probs = qprobs) # 95% CI = 0.70-0.90
 
 #------------------------------------------------------------------------------# 
 # Comparing demographic rates and lambda at each plot
