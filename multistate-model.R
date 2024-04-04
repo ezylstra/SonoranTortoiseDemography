@@ -1461,6 +1461,9 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
 # Write to file
 # write.csv(rate_means, "output/rate-means.csv", row.names = FALSE)
 
+# Calculate mean probability of decline (mean across sampled plots)
+  sum(lambda_0 < 1) / length(lambda_0)
+  
 #------------------------------------------------------------------------------# 
 # Projected estimates of lambda under a range of drought conditions
 #------------------------------------------------------------------------------#	
