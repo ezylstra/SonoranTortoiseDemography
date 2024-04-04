@@ -3,7 +3,7 @@
 # Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 26 March 2024
+# Last updated: 4 April 2024
 ################################################################################
 
 library(dplyr)
@@ -23,7 +23,7 @@ rm(list=ls())
 #------------------------------------------------------------------------------#
 
 cr <- read.csv("data/CapRecapData.csv", header = TRUE)
-plots <- read.csv("data/Plots.csv", header = TRUE)
+plots <- read.csv("data/Plots_NoCoords.csv", header = TRUE)
 surveys <- read.csv("data/Surveys.csv", header = TRUE)
 pdsi <- read.csv("data/PDSI.csv", header = TRUE)
 precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
@@ -724,7 +724,6 @@ plot_summaries <- plots %>%
 to_add <- data.frame(plot = "Mean/Total", climate = NA, 
                      city.km = mean(plot_summaries$city.km),
                      pptnorms.mm = mean(plot_summaries$pptnorms.mm),
-                     lat = NA, long = NA, 
                      n_torts = sum(plot_summaries$n_torts),
                      n_juv = sum(plot_summaries$n_juv),
                      prop_juv = sum(firstlast$state1 == 1) / nrow(firstlast),
@@ -1198,15 +1197,17 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   psi_mat <- exp(psi_l) / (1 + exp(psi_l))
   
 # Calculate lambdas for each plot, level of drought
+# (Note that loop takes several minutes to run)
   
   # Will create a list with 4 lambda matrices, one for each level of drought
   lambda_plots <- list() 
   # Will also extract elasticity values for adult female survival
-  fem_surv_elas <- matrix(NA, nrow = 4, ncol = ncol(psi_mat))
+  fem_surv_elas <- list()
   
   for (d in 1:4) {
     
     lambda_plots[[d]] <- matrix(NA, nrow = nrow(psi_mat), ncol = ncol(psi_mat))
+    fem_surv_elas[[d]] <- matrix(NA, nrow = nrow(psi_mat), ncol = ncol(psi_mat))
     # Extract matrix of juvenile survival values for d level of drought
     phi1 <- phi1_mat[which(phi1_X$drought == drought4.z[d]),]
     # Extract matrix of female survival values for d level of drought
@@ -1219,12 +1220,12 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
                              phi1[i, j] * psi_mat[i, j], phi2[i, j]),
                            nrow = 2, ncol = 2, byrow = TRUE)
         lambda_plots[[d]][i, j] <- eigen(proj.mat)$values[1]
-        fem_surv_elas[d, j] <- elasticity(proj.mat)[2, 2]
+        fem_surv_elas[[d]][i, j] <- elasticity(proj.mat)[2, 2]
         
       }
     }
-  }  
-  
+  } 
+
 # Summarize estimates:
   lambda_plots <- do.call(rbind, lambda_plots)
   ests_by_plot <- data.frame(plot = rep(plots$plot, 4),
@@ -1250,8 +1251,8 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
 # write.csv(ests_by_plot, "output/plot-level-estimates.csv", row.names = FALSE)
 
 # Summarize elasticity values for adult female survival (at PDSI = -1.08)
-  summary(fem_surv_elas[2,]) # mean = 0.80
-  quantile(fem_surv_elas[2,], probs = qprobs) # 95% CI = 0.70-0.90
+  mean(fem_surv_elas[[2]]) # mean = 0.77
+  quantile(fem_surv_elas[[2]], probs = qprobs) # 95% CI = 0.58-0.94
 
 #------------------------------------------------------------------------------# 
 # Comparing demographic rates and lambda at each plot
@@ -1337,15 +1338,18 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   # r = 0.32 (P = 0.23)
   
 # Correlations between lambda values and latitude/longitude
-  ests_by_plot <- ests_by_plot %>%
-    left_join(plots[, c("plot", "lat", "long")], by = "plot")
-  
-  cor.test(ests_by_plot$lambda[round(ests_by_plot$drought) == -1], 
-           ests_by_plot$lat[round(ests_by_plot$drought) == -1])
-  # r = -0.05 (P = 0.86)
-  cor.test(ests_by_plot$lambda[round(ests_by_plot$drought) == -1], 
-           ests_by_plot$long[round(ests_by_plot$drought) == -1])
-  # r = 0.26 (P = 0.32)
+# (Commented out because plot coordinates not publicly available)
+  # coords <- read.csv(".../Plots_Coords.csv")
+  # 
+  # ests_by_plot <- ests_by_plot %>%
+  #   left_join(coords[, c("plot", "lat", "long")], by = "plot")
+  # 
+  # cor.test(ests_by_plot$lambda[round(ests_by_plot$drought) == -1], 
+  #          ests_by_plot$lat[round(ests_by_plot$drought) == -1])
+  # # r = -0.05 (P = 0.86)
+  # cor.test(ests_by_plot$lambda[round(ests_by_plot$drought) == -1], 
+  #          ests_by_plot$long[round(ests_by_plot$drought) == -1])
+  # # r = 0.26 (P = 0.32)
   
 #------------------------------------------------------------------------------# 
 # Estimates of mean demographic, detection rates across sampled populations
