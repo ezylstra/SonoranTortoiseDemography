@@ -10,7 +10,7 @@
     - obsdate: capture date (YYYY-MM-DD format)
     - tort: unique alphanumeric ID for each tortoise
     - sex: Sex of tortoise, where 1 = female, 2 = male, and 3 = unknown (most of which are juveniles). 
-  - MCL: Maximum carapace length
+    - MCL: Maximum carapace length
 2. [Plots_NoCoords.csv](data/Plots_NoCoords.csv): Covariate data for each plot.
     - plot: 2-letter code for each of the 17 plots
     - climate: climate division
