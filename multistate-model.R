@@ -1,9 +1,8 @@
 ################################################################################
-# Multi-state model to estimate demographic rates of Sonoran desert tortoises in 
-# Arizona, 1987-2020
+# Multi-state model to estimate demographic rates of Sonoran desert tortoises 
+# in Arizona, 1987-2020
 
 # ER Zylstra
-# Last updated: 4 April 2024
 ################################################################################
 
 library(dplyr)
@@ -15,8 +14,6 @@ library(MCMCvis)
 library(ggplot2)
 library(cowplot)
 library(popbio)
-
-rm(list=ls())
 
 #------------------------------------------------------------------------------# 
 # Load data
@@ -108,7 +105,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   summary(surv.y$n.plots)
   # Average number of plots per year, 1987-2008
   summary(surv.y$n.plots[surv.y$yr %in% 1987:2008])
-  # Total number of plots surveyed between 2009-2004
+  # Total number of plots surveyed between 2009-2014
   sum(surv.y$n.plots[surv.y$yr %in% 2009:2014])
   # Average number of plots per year, 2015-2020
   summary(surv.y$n.plots[surv.y$yr %in% 2015:2020])
@@ -120,7 +117,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
 # MCL: Used to differentiate adults (>= 180 mm), juveniles (< 180 mm)
 
 # Sex: 1 = female, 2 = male, 3 = juvenile/unknown 
-  # When there were occasional discrepancies, we used sex at last capture, since 
+  # When there were occasional discrepancies, we used sex at last capture since 
   # we're more likely to correctly classify sex in larger individuals. Only
   # seven individuals that were captured as adults and not assigned sex
   
@@ -592,56 +589,56 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   tortconstants <- tortdata
   tortconstants[c("male", "y")] <- NULL
 
-# Create model object (~ 15 min)
-  # tortmodel <- nimbleModel(code = tortcode, constants = tortconstants, 
-  #                          calculate = FALSE)
+# Create model object
+  tortmodel <- nimbleModel(code = tortcode, constants = tortconstants, 
+                           calculate = FALSE)
 
 # Set data and inits
-  # tortmodel$setData(list(y = as.matrix(ch.mat),
-  #                        male = male.ind))
-  # set.seed(123)
-  # tortmodel$setInits(inits())
+  tortmodel$setData(list(y = as.matrix(ch.mat),
+                         male = male.ind))
+  set.seed(123)
+  tortmodel$setInits(inits())
 
-# Build MCMC (~ 69 min)
-  # tortmcmc <- buildMCMC(tortmodel,
-  #                       monitors = params)
+# Build MCMC
+  tortmcmc <- buildMCMC(tortmodel,
+                        monitors = params)
 
-# Compile the model and MCMC (~ 21 min)
-  # Ctortmodel <- compileNimble(tortmodel)
-  # Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
+# Compile the model and MCMC
+  Ctortmodel <- compileNimble(tortmodel)
+  Ctortmcmc <- compileNimble(tortmcmc, project = tortmodel)
 
 # MCMC settings
-  # n.chains <- 3
-  # n.iter <- 30000
-  # n.burn <- 5000
-  # n.thin <- 15
-  # ni.tot <- n.iter + n.burn
+  n.chains <- 3
+  n.iter <- 30000
+  n.burn <- 5000
+  n.thin <- 15
+  ni.tot <- n.iter + n.burn
     
-# Run the MCMC and extract the samples (~ 13 hrs)
-  # samples <- runMCMC(
-  #   Ctortmcmc,
-  #   nchains = n.chains,
-  #   niter = ni.tot,
-  #   nburnin = n.burn,
-  #   thin = n.thin,
-  #   samplesAsCodaMCMC = TRUE
-  # )
+# Run the MCMC and extract the samples
+  samples <- runMCMC(
+    Ctortmcmc,
+    nchains = n.chains,
+    niter = ni.tot,
+    nburnin = n.burn,
+    thin = n.thin,
+    samplesAsCodaMCMC = TRUE
+  )
 
 # Save samples
-  # saveRDS(samples, "MS-samples-6000.rds")
+  saveRDS(samples, "MS-samples-6000.rds")
 
 #------------------------------------------------------------------------------#  
 # Post-processing
 #------------------------------------------------------------------------------#    
   
-# Load samples from previous run (if needed)
+# Load MCMC samples (if run previously)
   samples <- readRDS("MS-samples-6000.rds")
 
 # Produce summary table, look at trace & density plots
-  MCMCsummary(samples, 
-              round = 2, 
-              params = "all", 
-              probs = c(0.025, 0.975))
+  # MCMCsummary(samples, 
+  #             round = 2, 
+  #             params = "all", 
+  #             probs = c(0.025, 0.975))
   # MCMCtrace(samples,
   #           params = "all",
   #           pdf = TRUE,
@@ -656,7 +653,7 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
                             mcmc.list = FALSE)
   samples_df <- data.frame(samples_mat)
   
-# Create a table with parameter estimates for the manuscript
+# Create a table with parameter estimates
   params <- c("beta.phi1", "b1.city", "b1.mnprecip", "b1.drought", "b1.int", 
               "sigma.site.1", "beta.phi2", "b2.male", "b2.city", "b2.mnprecip",
               "b2.drought", "b2.int", "b2.trend", "b2.trend2", "sigma.site.2",
@@ -794,7 +791,7 @@ plot_summaries <- rbind(plot_summaries, to_add)
                              ifelse(regime == "Semiarid", 2, 3)))
   linewidth <- 0.3
   
-  # Just using estimates for M/F at dries and wettest sites
+  # Just using estimates for M/F at driest and wettest sites
   adsurv_df4 <- filter(adsurv_df, regime != "Arid/Semiarid") %>%
     mutate(group = as.factor(group))
   groups4 <- filter(groups, regime != "Arid/Semiarid") %>%
@@ -815,7 +812,8 @@ plot_summaries <- rbind(plot_summaries, to_add)
           legend.title = element_blank(),
           legend.position = c(1, 0.02),
           legend.justification = c("right", "bottom"),
-          legend.key.height = unit(0.15, "in"))
+          legend.key.height = unit(0.15, "in"),
+          legend.text = element_text(size = 9))
 
   # ggsave("output/adult-survival-drought.jpg",
   #        adsurv_plot,
@@ -824,10 +822,8 @@ plot_summaries <- rbind(plot_summaries, to_add)
   #        width = 3,
   #        height = 3,
   #        units = "in")
-  # Can easily change device to pdf (and remove dpi argument)
 
 # Juveniles
-  # Use survival estimates for last year (2019-2020)
   # Assume average distance from city (standardized distance = 0)
   phi1 <- samples_df %>% 
     select(beta.phi1, b1.mnprecip, b1.drought, b1.int) %>%
@@ -880,7 +876,8 @@ plot_summaries <- rbind(plot_summaries, to_add)
           legend.title = element_blank(),
           legend.position = c(1, 0.02),
           legend.justification = c("right", "bottom"),
-          legend.key.height = unit(0.15, "in"))
+          legend.key.height = unit(0.15, "in"),
+          legend.text = element_text(size = 9))
 
   # ggsave("output/juv-survival-drought.jpg",
   #        juvsurv_plot,
@@ -909,6 +906,7 @@ plot_summaries <- rbind(plot_summaries, to_add)
           legend.position = c(1, 0.02),
           legend.justification = c("right", "bottom"),
           legend.key.height = unit(0.15, "in"),
+          legend.text = element_text(size = 9),
           axis.title.x = element_blank(), 
           axis.text.x = element_blank())
   surv_stack <- plot_grid(juvsurv_stack, adsurv_plot, ncol = 1)
@@ -921,8 +919,6 @@ plot_summaries <- rbind(plot_summaries, to_add)
   #        height = 5.5,
   #        units = "in")
 
-# May want to simplify legends...
-  
 #------------------------------------------------------------------------------# 
 # Temporal trends in adult survival
 #------------------------------------------------------------------------------#	  
@@ -1197,8 +1193,7 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   psi_mat <- exp(psi_l) / (1 + exp(psi_l))
   
 # Calculate lambdas for each plot, level of drought
-# (Note that loop takes several minutes to run)
-  
+
   # Will create a list with 4 lambda matrices, one for each level of drought
   lambda_plots <- list() 
   # Will also extract elasticity values for adult female survival
@@ -1321,22 +1316,17 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
   # Adult survival (female)
   plot(lambda ~ ad_fem, data = ests_droughtmean)
   cor.test(ests_droughtmean$lambda, ests_droughtmean$ad_fem)
-  # r = 0.05 (P = 0.84)
-  
+
   # Juvenile survival
   plot(lambda ~ juv, data = ests_droughtmean)
   cor.test(ests_droughtmean$lambda, ests_droughtmean$juv)
-  # r = 0.88 (P < 0.001)
-  
+
   # Transition rate
   plot(lambda ~ trans, data = ests_droughtmean)
   cor.test(ests_droughtmean$lambda, ests_droughtmean$trans)
-  # r = 0.53 (P = 0.03), though one plot (WM) seems to have a lot of leverage
-  # with very high transition rate and lambda
   cor.test(ests_droughtmean$lambda[c(1:15, 17)], 
            ests_droughtmean$trans[c(1:15, 17)])
-  # r = 0.32 (P = 0.23)
-  
+
 # Correlations between lambda values and latitude/longitude
 # (Commented out because plot coordinates not publicly available)
   # coords <- read.csv(".../Plots_Coords.csv")
@@ -1356,40 +1346,9 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
 #------------------------------------------------------------------------------#	
 # For adult survival, generating values for 2019-2020
 # For survival, generating values at PDSI = -1.08 (mean across plots and years)
-  
-# Note: we could do this 2 ways: 1) use the intercept from the linear model for
-# each rate, or, 2) calculate the rate for each plot (city and mean precip = 
-# observed values, drought.z = 0, including random effect), average across plots 
-# for each iteration, and then summarize the resulting distribution. 
 
-# Option 1 would reflect a hypothetical plot that was at the mean distance from 
-# a city and had mean annual precipitation.
-# Option 2 would reflect the mean across sampled populations.  
-# Going with option 2 (commented out approach using option 1 below)
-
-# Option 1: use intercept from model for each rate
-  # samples_df <- samples_df %>%
-  #     mutate(phi1.mn = exp(beta.phi1) / (1 + exp(beta.phi1)),
-  #            phi2.f = exp(beta.phi2) / (1 + exp(beta.phi2)),
-  #            phi2.m = exp(beta.phi2 + b2.male) / (1 + exp(beta.phi2 + b2.male)),
-  #            psi12.mn = exp(gamma.psi) / (1 + exp(gamma.psi)),
-  #            p1.mn = exp(alpha.p1) / (1 + exp(alpha.p1)),
-  #            p2.f = exp(alpha.p2) / (1 + exp(alpha.p2)),
-  #            p2.m = exp(alpha.p2 + a2.male) / (1 + exp(alpha.p2 + a2.male)))
-  # samples_means_int <- samples_df %>%
-  #   select(phi1.mn, phi2.f, phi2.m, psi12.mn, p1.mn, p2.f, p2.m)
-  # rate_means_int <- data.frame(mean = apply(samples_means_int, 2, mean),
-  #                              median = apply(samples_means_int, 2, median),
-  #                              lcl = apply(samples_means_int, 2, quantile, qprobs[1]),
-  #                              ucl = apply(samples_means_int, 2, quantile, qprobs[2]))
-  # rate_means_int$param <- rownames(rate_means_int)
-  # rate_means_int <- rate_means_int %>%
-  #   relocate(param, .before = mean)
-  # row.names(rate_means_int) <- NULL
-  # rate_means_int
-
-# Option 2: calculate rate for each plot, average across plots for each 
-# iteration, then summarize distribution
+# Calculate rate for each plot, average across plots for each MCMC iteration, 
+# then summarize distribution
   # Grab samples for each demographic rate & plot, with PDSI = long-term mean (-1)
   phi1_mat_0 <- phi1_mat[18:34, ]
   phi2m_mat_0 <- phi2m_mat[18:34, ]
