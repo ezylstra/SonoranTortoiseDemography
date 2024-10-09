@@ -635,10 +635,10 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
   samples <- readRDS("MS-samples-6000.rds")
 
 # Produce summary table, look at trace & density plots
-  # MCMCsummary(samples, 
-  #             round = 2, 
-  #             params = "all", 
-  #             probs = c(0.025, 0.975))
+  MCMCsummary <- MCMCsummary(samples,
+                             round = 2,
+                             params = "all",
+                             probs = c(0.025, 0.975))
   # MCMCtrace(samples,
   #           params = "all",
   #           pdf = TRUE,
@@ -666,7 +666,11 @@ precip <- read.csv("data/Precip_Monthly.csv", header = TRUE)
            greater0 = apply(samples_mat[, params], 2, function(x) sum(x > 0)/length(x)),
            f = if_else(greater0 < 0.5, 1 - greater0, greater0)) %>%
     select(-greater0)
-
+  
+  MCMCsummary$parameter <- row.names(MCMCsummary)
+  param_table <- param_table %>%
+    left_join(select(MCMCsummary, parameter, Rhat, n.eff), by = "parameter")
+  
 # Write to file  
 # write.csv(param_table, "output/parameter-estimates.csv", row.names = FALSE)
 
