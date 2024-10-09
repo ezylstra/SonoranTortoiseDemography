@@ -790,10 +790,10 @@ plot_summaries <- rbind(plot_summaries, to_add)
 
   # Set colors, linetypes for figure (types: 1 = solid, 2 = dashed, 3 = dotted) 
   groups <- data.frame(unique(adsurv_df[, c("group", "sex", "regime")])) %>%
-    mutate(col = ifelse(sex == "F", "salmon3", "steelblue4"),
+    mutate(col = ifelse(sex == "F", "#fd9323", "#2c7bb6"),
            linetype = ifelse(regime == "Arid", 1,
                              ifelse(regime == "Semiarid", 2, 3)))
-  linewidth <- 0.3
+  linewidth <- 0.4
   
   # Just using estimates for M/F at driest and wettest sites
   adsurv_df4 <- filter(adsurv_df, regime != "Arid/Semiarid") %>%
@@ -855,7 +855,7 @@ plot_summaries <- rbind(plot_summaries, to_add)
     mutate(col = "black",
            linetype = ifelse(regime == "Arid", 1,
                              ifelse(regime == "Semiarid", 2, 3)))
-  linewidth <- 0.3
+  linewidth <- 0.4
   
   # Just using estimates  at driest and wettest sites
   juvsurv_df2 <- filter(juvsurv_df, regime != "Arid/Semiarid") %>%
@@ -1072,17 +1072,16 @@ pdsi_df <- pdsi_df %>%
 # Set colors, linetypes for figure
 pdsi24t$div <- as.factor(pdsi24t$div)
 divs <- data.frame(div = sort(unique(pdsi24t$div))) %>%
-  mutate(col = c('mediumpurple4','steelblue4','darkseagreen4',
-                 'goldenrod4','salmon4'),
+  mutate(col = c("#beaed4", "#fdbc46", "#1f78b4", "#a6cee3", "#33a02c"),
          shape = 21:25)
 linetype <- 1
 linewidth <- 0.3
 
 pdsi_plot <- ggplot() +
   geom_line(data = pdsi24t, aes(x = yr, y = pdsi.24, group = div, col = div),
-            linewidth = linewidth, alpha = 0.6, show.legend = NA) +
+            linewidth = linewidth, alpha = 1, show.legend = NA) +
   geom_point(data = pdsi24t, aes(x = yr, y = pdsi.24, col = div, fill = div, shape = div), 
-             size = 1.2, alpha = 0.6) +
+             size = 1.4, alpha = 1) +
   geom_line(data = pdsi_df, aes(x = yr, y = central), show.legend = NA) +
   geom_ribbon(data = pdsi_df, aes(x = yr, ymin = lcl, ymax = ucl), alpha = 0.2,
               show.legend = NA) +
