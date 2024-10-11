@@ -1250,7 +1250,7 @@ drought4.z <- (drought4 - pdsi.24.mn) / pdsi.24.sd
 
 # Summarize elasticity values for adult female survival (at PDSI = -1.08)
   mean(fem_surv_elas[[2]]) # mean = 0.77
-  quantile(fem_surv_elas[[2]], probs = qprobs) # 95% CI = 0.58-0.94
+  quantile(fem_surv_elas[[2]], probs = qprobs) # 95% CI = 0.58-0.95
 
 #------------------------------------------------------------------------------# 
 # Comparing demographic rates and lambda at each plot
@@ -1561,3 +1561,75 @@ set.seed(123)
   
 # Write to file
 # write.csv(ests_overall, "output/statewide-projections.csv", row.names = FALSE)
+
+#------------------------------------------------------------------------------# 
+# Projected estimates of lambda under a range of drought conditions, with
+# different assumed statewide recruitment rates
+#------------------------------------------------------------------------------#	
+# For adult survival, generating values for 2019-2020
+# For survival, generating values for 4 levels of drought: 
+  # mean PDSI = -3, -1.08 (mean value across plots and years), 0, +3
+# Will assume city and meanprecip = mean (0, when standardized)
+# Will account for spatial random effects in all demographic parameters
+# Will assume recruitment is +/- 25% of the previously assumed value
+
+# Set recruitment rates
+recr_orig <- 0.32
+recr_change <- 0.25 # Percent change in recruitment rate
+recrs <- c(recr_orig * (1 - recr_change), 
+           recr_orig, 
+           recr_orig * (1 + recr_change))
+
+# Set a seed, since we'll be generating random values of spatial random effects
+# for each iteration
+set.seed(123)
+
+lambda_overall_l <- matrix(NA, nrow = nrow(phi1_mat), ncol = ncol(phi1_mat))
+for (i in 1:nrow(phi1_mat)) {
+  for (j in 1:ncol(phi1_mat)) {
+    
+    proj.mat <- matrix(c(phi1_mat[i, j] * (1 - psi_mat[i, j]), recrs[1],
+                         phi1_mat[i, j] * psi_mat[i, j], phi2f_mat[i, j]),
+                       nrow = 2, ncol = 2, byrow = TRUE)
+    lambda_overall_l[i, j] <- eigen(proj.mat)$values[1]
+    
+  }
+}
+
+lambda_overall_h <- matrix(NA, nrow = nrow(phi1_mat), ncol = ncol(phi1_mat))
+for (i in 1:nrow(phi1_mat)) {
+  for (j in 1:ncol(phi1_mat)) {
+    
+    proj.mat <- matrix(c(phi1_mat[i, j] * (1 - psi_mat[i, j]), recrs[3],
+                         phi1_mat[i, j] * psi_mat[i, j], phi2f_mat[i, j]),
+                       nrow = 2, ncol = 2, byrow = TRUE)
+    lambda_overall_h[i, j] <- eigen(proj.mat)$values[1]
+    
+  }
+}
+
+ests_lambda_l <- data.frame(drought = drought4) %>%
+  mutate(recruitment = recrs[1]) %>%
+  mutate(lambda = apply(lambda_overall_l, 1, ctend),
+         lambda_lcl = apply(lambda_overall_l, 1, quantile, qprobs[1]),
+         lambda_ucl = apply(lambda_overall_l, 1, quantile, qprobs[2]),
+         probdecline = apply(lambda_overall_l, 1, function(x) sum(x < 1) / length(x)))
+ests_lambda_o <- data.frame(drought = drought4) %>%
+  mutate(recruitment = recrs[2]) %>%
+  mutate(lambda = apply(lambda_overall, 1, ctend),
+         lambda_lcl = apply(lambda_overall, 1, quantile, qprobs[1]),
+         lambda_ucl = apply(lambda_overall, 1, quantile, qprobs[2]),
+         probdecline = apply(lambda_overall, 1, function(x) sum(x < 1) / length(x)))
+ests_lambda_h <- data.frame(drought = drought4) %>%
+  mutate(recruitment = recrs[3]) %>%
+  mutate(lambda = apply(lambda_overall_h, 1, ctend),
+         lambda_lcl = apply(lambda_overall_h, 1, quantile, qprobs[1]),
+         lambda_ucl = apply(lambda_overall_h, 1, quantile, qprobs[2]),
+         probdecline = apply(lambda_overall_h, 1, function(x) sum(x < 1) / length(x)))  
+ests_lambda <- rbind(ests_lambda_l,
+                     ests_lambda_o,
+                     ests_lambda_h)
+
+# Write to file
+# write.csv(ests_lambda, "output/statewide-projections-lambda.csv", 
+#           row.names = FALSE)
